@@ -62,10 +62,53 @@ var TCV_Host = {
                 frameSizeVertical: seq.frameSizeVertical,
                 projectName: app.project.name || "Untitled",
                 projectPath: app.project.path || "",
-                tempFolder: Folder.temp.fsName
+                preferredFolder: TCV_Host.getPreferredExportFolder()
             });
         } catch (e) {
             return TCV_JSON.stringify({ success: false, error: e.toString() });
+        }
+    },
+
+    /**
+     * Get best persistent directory for exported caption files (avoids macOS /private/var/folders sandbox errors)
+     */
+    getPreferredExportFolder: function () {
+        try {
+            // 1. Current Project folder (permanent, alongside project media, zero macOS sandbox issues)
+            if (app.project && app.project.path) {
+                var prjFile = new File(app.project.path);
+                if (prjFile.parent && prjFile.parent.exists) {
+                    var captionsFolder = new Folder(prjFile.parent.fsName + "/TCV_Captions");
+                    if (!captionsFolder.exists) {
+                        captionsFolder.create();
+                    }
+                    if (captionsFolder.exists) {
+                        return captionsFolder.fsName;
+                    }
+                    return prjFile.parent.fsName;
+                }
+            }
+
+            // 2. User Documents folder
+            if (Folder.myDocuments && Folder.myDocuments.exists) {
+                var docFolder = new Folder(Folder.myDocuments.fsName + "/TCV_Captions");
+                if (!docFolder.exists) {
+                    docFolder.create();
+                }
+                if (docFolder.exists) {
+                    return docFolder.fsName;
+                }
+                return Folder.myDocuments.fsName;
+            }
+
+            // 3. Desktop
+            if (Folder.desktop && Folder.desktop.exists) {
+                return Folder.desktop.fsName;
+            }
+
+            return "/tmp";
+        } catch (e) {
+            return "/tmp";
         }
     },
 
@@ -143,7 +186,7 @@ var TCV_Host = {
     },
 
     /**
-     * Write text to disk (UTF-8)
+     * Write text to disk with strict Windows CRLF normalization and UTF-8 encoding
      */
     writeDiskFile: function (path, content) {
         try {
@@ -153,12 +196,15 @@ var TCV_Host = {
                 parent.create();
             }
             f.encoding = "UTF-8";
+            f.lineFeed = "Windows"; // Force CRLF on macOS and Windows for Premiere ImporterSRT
             if (!f.open("w")) {
                 return TCV_JSON.stringify({ success: false, error: "Could not open file for writing: " + path });
             }
-            f.write(content);
+            // Normalize all newlines to CRLF (\r\n) so Premiere Pro ImporterSRT never chokes
+            var cleanContent = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, "\r\n");
+            f.write(cleanContent);
             f.close();
-            return TCV_JSON.stringify({ success: true, path: path });
+            return TCV_JSON.stringify({ success: true, path: f.fsName });
         } catch (e) {
             return TCV_JSON.stringify({ success: false, error: e.toString() });
         }
@@ -169,13 +215,18 @@ var TCV_Host = {
      */
     getOrCreateBin: function (binName) {
         var root = app.project.rootItem;
+        if (!root) return null;
         for (var i = 0; i < root.children.numItems; i++) {
             var item = root.children[i];
-            if (item.type === ProjectItemType.BIN && item.name === binName) {
+            if (item && item.type === ProjectItemType.BIN && item.name === binName) {
                 return item;
             }
         }
-        return root.createBin(binName);
+        try {
+            return root.createBin(binName);
+        } catch (e) {
+            return root;
+        }
     },
 
     /**
@@ -189,29 +240,61 @@ var TCV_Host = {
 
             var f = new File(srtFilePath);
             if (!f.exists) {
-                return TCV_JSON.stringify({ success: false, error: "SRT file does not exist: " + srtFilePath });
+                return TCV_JSON.stringify({ success: false, error: "SRT file does not exist on disk: " + srtFilePath });
             }
 
             var binName = customBinName || "TCV QC Captions";
-            var targetBin = TCV_Host.getOrCreateBin(binName);
+            var targetBin = null;
+            try {
+                targetBin = TCV_Host.getOrCreateBin(binName);
+            } catch (bErr) {
+                targetBin = app.project.rootItem;
+            }
+            if (!targetBin) {
+                targetBin = app.project.rootItem;
+            }
 
             // Import files into target bin
             var fileArray = [f.fsName];
             var suppressUI = true;
-            var importSuccess = app.project.importFiles(fileArray, suppressUI, targetBin, false);
-
-            if (!importSuccess) {
-                return TCV_JSON.stringify({ success: false, error: "app.project.importFiles failed for " + srtFilePath });
+            var importSuccess = false;
+            try {
+                importSuccess = app.project.importFiles(fileArray, suppressUI, targetBin, false);
+            } catch (impErr) {
+                // If custom bin import threw, retry with project rootItem
+                try {
+                    importSuccess = app.project.importFiles(fileArray, suppressUI, app.project.rootItem, false);
+                } catch (impErr2) {}
             }
 
-            // Find the imported project item inside targetBin
+            if (!importSuccess) {
+                return TCV_JSON.stringify({
+                    success: false,
+                    filePath: f.fsName,
+                    error: "app.project.importFiles could not load: " + f.fsName
+                });
+            }
+
+            // Find the imported project item (search targetBin, then rootItem backwards)
             var importedItem = null;
             var fileNameOnly = f.name;
-            for (var i = 0; i < targetBin.children.numItems; i++) {
-                var child = targetBin.children[i];
-                if (child.name === fileNameOnly || child.name.indexOf(fileNameOnly.replace(".srt", "")) !== -1) {
-                    importedItem = child;
-                    break;
+            var searchBin = targetBin || app.project.rootItem;
+            if (searchBin && searchBin.children) {
+                for (var i = searchBin.children.numItems - 1; i >= 0; i--) {
+                    var child = searchBin.children[i];
+                    if (child && (child.name === fileNameOnly || child.name.indexOf(fileNameOnly.replace(".srt", "")) !== -1)) {
+                        importedItem = child;
+                        break;
+                    }
+                }
+            }
+            if (!importedItem && app.project.rootItem && app.project.rootItem.children) {
+                for (var j = app.project.rootItem.children.numItems - 1; j >= 0; j--) {
+                    var rChild = app.project.rootItem.children[j];
+                    if (rChild && (rChild.name === fileNameOnly || rChild.name.indexOf(fileNameOnly.replace(".srt", "")) !== -1)) {
+                        importedItem = rChild;
+                        break;
+                    }
                 }
             }
 
@@ -224,24 +307,36 @@ var TCV_Host = {
                 // Try createCaptionTrack methods across Premiere Pro versions
                 try {
                     if (typeof activeSeq.createCaptionTrack === "function") {
-                        // Signature 1: createCaptionTrack(projectItem, startTime)
-                        trackCreated = activeSeq.createCaptionTrack(importedItem, 0);
-                        trackMethod = "createCaptionTrack(item, 0)";
-                        
+                        // Method 1: Official modern enum createCaptionTrack(item, 0, Sequence.CAPTION_FORMAT_SUBTITLE)
+                        try {
+                            if (typeof Sequence !== "undefined" && Sequence.CAPTION_FORMAT_SUBTITLE !== undefined) {
+                                trackCreated = activeSeq.createCaptionTrack(importedItem, 0, Sequence.CAPTION_FORMAT_SUBTITLE);
+                                if (trackCreated) trackMethod = "createCaptionTrack(item, 0, CAPTION_FORMAT_SUBTITLE)";
+                            }
+                        } catch (e1) {}
+
+                        // Method 2: createCaptionTrack(projectItem, startTime)
                         if (!trackCreated) {
-                            // Signature 2: createCaptionTrack(projectItem, startTime, format)
                             try {
-                                trackCreated = activeSeq.createCaptionTrack(importedItem, 0, "SubRip");
-                                trackMethod = "createCaptionTrack(item, 0, 'SubRip')";
+                                trackCreated = activeSeq.createCaptionTrack(importedItem, 0);
+                                if (trackCreated) trackMethod = "createCaptionTrack(item, 0)";
                             } catch (e2) {}
                         }
-
+                        
+                        // Method 3: createCaptionTrack(projectItem, startTime, 'SubRip')
                         if (!trackCreated) {
-                            // Signature 3: createCaptionTrack(projectItem)
+                            try {
+                                trackCreated = activeSeq.createCaptionTrack(importedItem, 0, "SubRip");
+                                if (trackCreated) trackMethod = "createCaptionTrack(item, 0, 'SubRip')";
+                            } catch (e3) {}
+                        }
+
+                        // Method 4: createCaptionTrack(projectItem)
+                        if (!trackCreated) {
                             try {
                                 trackCreated = activeSeq.createCaptionTrack(importedItem);
-                                trackMethod = "createCaptionTrack(item)";
-                            } catch (e3) {}
+                                if (trackCreated) trackMethod = "createCaptionTrack(item)";
+                            } catch (e4) {}
                         }
                     }
                 } catch (tErr) {
@@ -260,8 +355,8 @@ var TCV_Host = {
                 trackMethod: trackMethod,
                 trackError: trackError,
                 message: trackCreated ? 
-                    "Successfully imported into '" + binName + "' and added new caption track to timeline!" :
-                    "Imported into bin '" + binName + "'. (Ready to drag directly onto timeline sequence)."
+                    "Synced to timeline as a new caption track! (Saved: " + f.name + ")" :
+                    "Imported into bin '" + binName + "'. (Ready to drag onto timeline. Saved: " + f.name + ")"
             });
         } catch (e) {
             return TCV_JSON.stringify({ success: false, error: e.toString() });

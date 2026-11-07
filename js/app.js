@@ -265,11 +265,16 @@
     }
   }
 
-  // --- Format Cues back to SRT ---
+  // --- Format Cues back to SRT with strict CRLF compliance ---
   function formatSRT(cues) {
     return cues.map((c, idx) => {
-      return `${idx + 1}\r\n${c.startTime} --> ${c.endTime}\r\n${c.currentText.trim()}\r\n`;
-    }).join('\r\n');
+      let text = (c.currentText || '').trim();
+      // Normalize any internal linebreaks inside the caption text to standard \r\n
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const cleanLines = lines.length > 0 ? lines.join('\r\n') : '.';
+      return `${idx + 1}\r\n${c.startTime} --> ${c.endTime}\r\n${cleanLines}`;
+    }).join('\r\n\r\n') + '\r\n\r\n';
   }
 
   // --- Auto-Conform Engine ---
@@ -625,6 +630,50 @@
     });
   }
 
+  // --- Helper to safely write SRT to disk (Node.js direct write with ExtendScript fallback) ---
+  function writeFileSafely(targetPath, content, callback) {
+    const normalized = content
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\n/g, '\r\n');
+
+    let nodeFs = null;
+    let nodePath = null;
+    try {
+      if (typeof require === 'function') {
+        nodeFs = require('fs');
+        nodePath = require('path');
+      }
+    } catch (e) {}
+
+    if (nodeFs) {
+      try {
+        if (nodePath) {
+          const dir = nodePath.dirname(targetPath);
+          if (!nodeFs.existsSync(dir)) {
+            nodeFs.mkdirSync(dir, { recursive: true });
+          }
+        }
+        nodeFs.writeFileSync(targetPath, normalized, { encoding: 'utf8' });
+        if (callback) callback({ success: true, path: targetPath });
+        return;
+      } catch (err) {
+        console.warn('[Node fs write error, using ExtendScript fallback]', err);
+      }
+    }
+
+    // ExtendScript fallback
+    const escapedContent = JSON.stringify(normalized);
+    evalExtendScript(`TCV_Host.writeDiskFile("${targetPath.replace(/\\/g, '/')}", ${escapedContent})`, (writeRes) => {
+      try {
+        const wData = JSON.parse(writeRes);
+        if (callback) callback(wData);
+      } catch (err) {
+        if (callback) callback({ success: false, error: err.message });
+      }
+    });
+  }
+
   // --- Timeline Caption Rewriter / Creator ---
   function applyToTimeline() {
     if (state.cues.length === 0) {
@@ -637,42 +686,51 @@
     const cleanSeqName = seqName.replace(/[^a-zA-Z0-9_-]/g, '_');
     const tempFileName = `${cleanSeqName}_TCV_QC_${Date.now()}.srt`;
 
-    // Determine target save path
-    evalExtendScript('Folder.temp.fsName', (tempDir) => {
-      const cleanDir = (tempDir || '/tmp').replace(/"/g, '').trim();
-      const fullPath = (cleanDir.endsWith('/') || cleanDir.endsWith('\\')) ?
-        cleanDir + tempFileName : cleanDir + '/' + tempFileName;
-
-      // 1. Write cleaned SRT file
-      const escapedContent = JSON.stringify(srtContent);
-      const writeScript = `TCV_Host.writeDiskFile("${fullPath.replace(/\\/g, '/')}", ${escapedContent})`;
-
-      evalExtendScript(writeScript, (writeRes) => {
-        try {
-          const wData = JSON.parse(writeRes);
-          if (!wData.success) {
-            showBanner('Failed writing temp SRT: ' + wData.error, 'error');
-            return;
-          }
-
-          // 2. Import into project and add caption track to timeline
-          const importScript = `TCV_Host.importAndApplyCaptionTrack("${fullPath.replace(/\\/g, '/')}", "TCV QC Captions")`;
-          evalExtendScript(importScript, (importRes) => {
-            try {
-              const iData = JSON.parse(importRes);
-              if (iData.success) {
-                showBanner(iData.message || 'Subtitles imported and synced to timeline!', 'success');
-                refreshPremiereStatus();
-              } else {
-                showBanner('Import notice: ' + (iData.error || 'Check project bin.'), 'error');
-              }
-            } catch (err) {
-              showBanner('Timeline import error: ' + err.message, 'error');
-            }
-          });
-        } catch (e) {
-          showBanner('Write file error: ' + e.message, 'error');
+    // Determine target save path (Project Folder or Documents, avoiding /private/var/folders/ sandbox error)
+    evalExtendScript('TCV_Host.getPreferredExportFolder()', (resFolder) => {
+      let exportDir = '';
+      try {
+        const fData = JSON.parse(resFolder);
+        if (fData && fData.success && fData.folder) {
+          exportDir = fData.folder;
+        } else if (typeof resFolder === 'string') {
+          exportDir = resFolder.replace(/"/g, '').trim();
         }
+      } catch (e) {
+        exportDir = (resFolder || '').replace(/"/g, '').trim();
+      }
+
+      if (!exportDir || exportDir === 'null' || exportDir === 'undefined') {
+        exportDir = '/tmp';
+      }
+
+      const fullPath = (exportDir.endsWith('/') || exportDir.endsWith('\\')) ?
+        exportDir + tempFileName : exportDir + '/' + tempFileName;
+
+      showBanner('Exporting compliant SRT to project folder...', 'info');
+
+      // 1. Write cleaned SRT file with Windows CRLF
+      writeFileSafely(fullPath, srtContent, (wData) => {
+        if (!wData.success) {
+          showBanner('Failed writing SRT: ' + (wData.error || 'Disk write error'), 'error');
+          return;
+        }
+
+        // 2. Import into project bin and add caption track to active sequence
+        const importScript = `TCV_Host.importAndApplyCaptionTrack("${fullPath.replace(/\\/g, '/')}", "TCV QC Captions")`;
+        evalExtendScript(importScript, (importRes) => {
+          try {
+            const iData = JSON.parse(importRes);
+            if (iData.success) {
+              showBanner(iData.message || 'Subtitles imported and synced to timeline!', 'success');
+              refreshPremiereStatus();
+            } else {
+              showBanner('Import notice: ' + (iData.error || 'Check project bin.'), 'error');
+            }
+          } catch (err) {
+            showBanner('Timeline import error: ' + err.message, 'error');
+          }
+        });
       });
     });
   }
