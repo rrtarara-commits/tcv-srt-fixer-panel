@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TCV SRT Fixer</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-badge">TCV</span>
+      <span class="brand-title">SRT Fixer</span>
+    </div>
+    <div class="sequence-status" id="seq-status-container" title="Current active sequence in Premiere Pro">
+      <span class="status-dot" id="seq-status-dot"></span>
+      <span id="seq-status-text">Connecting to Premiere...</span>
+    </div>
+  </header>
+
+  <!-- Status Notification Banner -->
+  <div class="banner" id="status-banner"></div>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" data-tab="tab-qc">QC &amp; Editor</button>
+    <button class="tab-btn" data-tab="tab-ai">AI Rewriter</button>
+    <button class="tab-btn" data-tab="tab-slip">Slip &amp; Tools</button>
+    <button class="tab-btn" data-tab="tab-sync">Export &amp; Sync</button>
+    <button class="tab-btn" data-tab="tab-settings">Settings</button>
+  </nav>
+
+  <!-- Tab 1: QC & Editor -->
+  <main class="tab-content active" id="tab-qc">
+    <!-- Source Selection -->
+    <div class="source-bar">
+      <select id="project-srt-select" style="flex: 1; min-width: 140px;" title="Select an SRT asset already in your Premiere project">
+        <option value="">-- Scan Project Bin for SRT --</option>
+      </select>
+      <button class="btn btn-sm" id="browse-srt-btn" title="Open an SRT file from your hard drive">
+        &uarr; Browse File
+      </button>
+      <button class="btn btn-sm" id="paste-srt-btn" title="Paste raw subtitle text">
+        Paste SRT
+      </button>
+      <input type="file" id="file-input" accept=".srt,.vtt,.txt" style="display: none;">
+    </div>
+
+    <!-- Video Safe Zone Preview -->
+    <div class="preview-container" title="Subtitle preview inside SMPTE 80% Title Safe guides">
+      <div class="safe-zone-action"></div>
+      <div class="safe-zone-title"></div>
+      <div class="preview-caption-text" id="preview-caption">
+        [Load subtitles to inspect title-safe alignment]
+      </div>
+      <div class="preview-badge" id="preview-badge">16:9 Title Safe</div>
+    </div>
+
+    <!-- Audit KPI Grid -->
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <!-- Action Toolbar -->
+    <div class="action-toolbar">
+      <div style="display:flex; align-items:center; gap: 6px;">
+        <span style="font-size: 10px; color: var(--text-muted); font-weight: 600;">TARGET:</span>
+        <div class="cpl-pill-group">
+          <button class="cpl-pill active" data-cpl="37" title="Netflix / BBC broadcast standard (37 CPL)">37 CPL</button>
+          <button class="cpl-pill" data-cpl="42" title="YouTube / Web standard (42 CPL)">42 CPL</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-sm" id="autofix-all-btn" title="Split long CPL lines, resolve cue overlaps with 80ms gaps, and normalize typography">
+        &#9889; Auto-Conform All
+      </button>
+    </div>
+
+    <!-- Scrollable Cue List -->
+    <div class="cue-list-container" id="cue-list"></div>
+  </main>
+
+  <!-- Tab 2: AI Rewriter -->
+  <div class="tab-content" id="tab-ai">
+    <div class="ai-settings-card">
+      <div style="font-size: 12px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 6px;">
+        <span>&#10024;</span> AI Precision QC &amp; Context Rewriter
+      </div>
+      <p style="font-size: 11px; color: var(--text-muted);">
+        Runs grammar, typo, and reading-flow optimization without shifting timecodes. Protects custom terminology and acronyms.
+      </p>
+
+      <div class="field-group">
+        <label for="ai-provider">AI Provider</label>
+        <select id="ai-provider">
+          <option value="gemini">Google Gemini (Recommended - Flash / Pro)</option>
+          <option value="openai">OpenAI (GPT-4o-mini / GPT-4o)</option>
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label for="ai-model">Model</label>
+        <input type="text" id="ai-model" value="gemini-1.5-flash" placeholder="e.g. gemini-1.5-flash, gemini-2.0-flash, gpt-4o-mini">
+      </div>
+
+      <div class="field-group">
+        <label for="ai-api-key">API Key</label>
+        <input type="text" id="ai-api-key" placeholder="Enter Gemini or OpenAI API key">
+      </div>
+
+      <div class="field-group">
+        <label for="ai-glossary">Glossary (Do Not Change / Exact Spellings)</label>
+        <textarea id="ai-glossary" rows="3" placeholder="StreamYard, DaVinci Resolve, Premiere Pro, John Doe, SaaS"></textarea>
+      </div>
+
+      <div class="field-group">
+        <label for="ai-context">Project Domain Context</label>
+        <input type="text" id="ai-context" placeholder="e.g., Tech interview about AI video editing workflows">
+      </div>
+
+      <button class="btn btn-primary" id="run-ai-btn" style="margin-top: 6px; justify-content: center;">
+        Run AI QC &amp; Grammar Fix
+      </button>
+    </div>
+  </div>
+
+  <!-- Tab 3: Slip & Tools -->
+  <div class="tab-content" id="tab-slip">
+    <div class="ai-settings-card">
+      <div style="font-weight: 600; font-size: 12px; color: #fff;">Slip / Offset All Timecodes</div>
+      <p style="font-size: 11px; color: var(--text-muted);">
+        Nudge all subtitle cues earlier or later across the timeline in milliseconds.
+      </p>
+      <div style="display:flex; gap: 6px; align-items: center;">
+        <input type="number" id="slip-ms" value="100" step="50" style="width: 100px;" placeholder="+/- ms">
+        <span style="color: var(--text-muted);">milliseconds</span>
+        <button class="btn btn-sm" id="apply-slip-btn">Apply Slip</button>
+      </div>
+    </div>
+
+    <div class="ai-settings-card" style="margin-top: 8px;">
+      <div style="font-weight: 600; font-size: 12px; color: #fff;">Find &amp; Replace Across Cues</div>
+      <p style="font-size: 11px; color: var(--text-muted);">
+        Batch update misspelled terms, acronyms, or speaker names.
+      </p>
+      <div class="field-group">
+        <label for="find-input">Find Text</label>
+        <input type="text" id="find-input" placeholder="e.g. premiere">
+      </div>
+      <div class="field-group">
+        <label for="replace-input">Replace With</label>
+        <input type="text" id="replace-input" placeholder="e.g. Premiere Pro">
+      </div>
+      <button class="btn btn-sm" id="find-replace-btn" style="align-self: flex-start; margin-top: 4px;">
+        Replace All
+      </button>
+    </div>
+  </div>
+
+  <!-- Tab 4: Export & Sync -->
+  <div class="tab-content" id="tab-sync">
+    <div class="ai-settings-card">
+      <div style="font-weight: 600; font-size: 13px; color: #fff;">Direct Premiere Pro Timeline Sync</div>
+      <p style="font-size: 11px; color: var(--text-muted);">
+        Writes the conformed/rewritten captions to your project bin and automatically creates a new aligned caption track on the active sequence.
+      </p>
+
+      <button class="btn btn-primary" id="apply-timeline-btn" style="padding: 10px; font-weight: 600; justify-content: center; margin-top: 6px;">
+        &#10004; Apply &amp; Create Caption Track on Timeline
+      </button>
+    </div>
+
+    <div class="ai-settings-card" style="margin-top: 10px;">
+      <div style="font-weight: 600; font-size: 12px; color: #fff;">File Deliverables</div>
+      <div style="display:flex; gap: 8px; margin-top: 6px;">
+        <button class="btn btn-sm" id="download-srt-btn" style="flex: 1; justify-content: center;">
+          Download Cleaned SRT
+        </button>
+        <button class="btn btn-sm" id="export-csv-btn" style="flex: 1; justify-content: center;">
+          Export CSV QC Report
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 5: Settings & Guidelines -->
+  <div class="tab-content" id="tab-settings">
+    <div class="ai-settings-card">
+      <div style="font-weight: 600; font-size: 12px; color: #fff;">Broadcast QC Standards</div>
+      <ul style="font-size: 11px; color: var(--text-muted); padding-left: 16px; line-height: 1.6;">
+        <li><strong>Overlap / Collisions:</strong> Enforces standard 80ms gap (approx. 2 frames at 24/25fps) between adjacent cues.</li>
+        <li><strong>Max Characters Per Line:</strong> 37 CPL for Netflix/BBC broadcast; 42 CPL for YouTube &amp; web.</li>
+        <li><strong>Reading Speed:</strong> Warns when reading speed exceeds 20 CPS (Characters Per Second).</li>
+        <li><strong>Minimum Duration:</strong> Automatically expands cues shorter than 0.8s when timeline space allows.</li>
+        <li><strong>Typography:</strong> Automatically conforms curly quotes (&ldquo; &rdquo; &lsquo; &rsquo;) and em-dashes to standard ASCII.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Footer Quick Bar -->
+  <footer class="footer-bar">
+    <span style="font-size: 10px; color: var(--text-dim);">TCV Precision QC v1.0</span>
+    <button class="btn btn-primary btn-sm" onclick="document.querySelector('[data-tab=tab-sync]').click()">
+      Sync to Premiere &rarr;
+    </button>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="./js/CSInterface.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>

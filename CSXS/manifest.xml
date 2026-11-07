@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="10.0" ExtensionBundleId="com.tcv.srtfixer.panel" ExtensionBundleVersion="1.0.0"
+    ExtensionBundleName="TCV SRT Fixer &amp; QC Panel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <ExtensionList>
+        <Extension Id="com.tcv.srtfixer.panel" Version="1.0.0" />
+    </ExtensionList>
+    <ExecutionEnvironment>
+        <HostList>
+            <Host Name="PPRO" Version="[14.0,99.9]" />
+        </HostList>
+        <LocaleList>
+            <Locale Code="All" />
+        </LocaleList>
+        <RequiredRuntimeList>
+            <RequiredRuntime Name="CSXS" Version="10.0" />
+        </RequiredRuntimeList>
+    </ExecutionEnvironment>
+    <DispatchInfoList>
+        <Extension Id="com.tcv.srtfixer.panel">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./index.html</MainPath>
+                    <ScriptPath>./jsx/hostscript.jsx</ScriptPath>
+                    <CEPEngine>
+                        <CommandLine>
+                            <Parameter>--enable-nodejs</Parameter>
+                            <Parameter>--mixed-context</Parameter>
+                        </CommandLine>
+                    </CEPEngine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Panel</Type>
+                    <Menu>TCV SRT Fixer</Menu>
+                    <Geometry>
+                        <Size>
+                            <Width>480</Width>
+                            <Height>760</Height>
+                        </Size>
+                        <MinSize>
+                            <Width>340</Width>
+                            <Height>450</Height>
+                        </MinSize>
+                        <MaxSize>
+                            <Width>1400</Width>
+                            <Height>1600</Height>
+                        </MaxSize>
+                    </Geometry>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+    </DispatchInfoList>
+</ExtensionManifest>
