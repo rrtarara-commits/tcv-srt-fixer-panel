@@ -24,16 +24,16 @@ cp -R "$SRC_DIR/jsx" "$EXTENSION_DIR/"
 cp "$SRC_DIR/index.html" "$EXTENSION_DIR/"
 cp "$SRC_DIR/.debug" "$EXTENSION_DIR/"
 
-# Enable PlayerDebugMode for unsigned extensions across CEP versions
-echo "Enabling CEP PlayerDebugMode..."
-defaults write com.adobe.CSXS.9 PlayerDebugMode 1 2>/dev/null || true
-defaults write com.adobe.CSXS.10 PlayerDebugMode 1 2>/dev/null || true
-defaults write com.adobe.CSXS.11 PlayerDebugMode 1 2>/dev/null || true
-defaults write com.adobe.CSXS.12 PlayerDebugMode 1 2>/dev/null || true
-defaults write com.adobe.CSXS.13 PlayerDebugMode 1 2>/dev/null || true
+# Enable PlayerDebugMode for unsigned extensions across CEP versions (Premiere Pro 2020 through 2027+)
+echo "Enabling CEP PlayerDebugMode for CSXS 9 through 20..."
+for v in {9..20}; do
+    defaults write com.adobe.CSXS.$v PlayerDebugMode 1 2>/dev/null || true
+done
 
 echo "--------------------------------------------------------"
 echo "Installation Complete!"
+echo "Compatible with Adobe Premiere Pro 2024, 2025, 2026, 2027+"
 echo "Restart Premiere Pro, then open:"
 echo "Window > Extensions > TCV SRT Fixer"
 echo "--------------------------------------------------------"
+

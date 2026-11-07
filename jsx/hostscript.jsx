@@ -4,12 +4,25 @@
  * disk I/O, and automated caption track creation.
  *************************************************************************/
 
-// Micro JSON polyfill for ExtendScript (ECMAScript 3)
+// Micro JSON polyfill for ExtendScript (ECMAScript 3) with host JSON auto-detection
 var TCV_JSON = {
     stringify: function (obj) {
+        if (typeof JSON !== "undefined" && JSON && typeof JSON.stringify === "function") {
+            try { return JSON.stringify(obj); } catch (e) {}
+        }
         var t = typeof (obj);
         if (t !== "object" || obj === null) {
-            if (t === "string") return '"' + obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+            if (t === "string") {
+                return '"' + obj.replace(/\\/g, '\\\\')
+                                .replace(/"/g, '\\"')
+                                .replace(/\n/g, '\\n')
+                                .replace(/\r/g, '\\r')
+                                .replace(/\t/g, '\\t')
+                                .replace(/[\x00-\x1f]/g, function (c) {
+                                    var hex = c.charCodeAt(0).toString(16);
+                                    return '\\u' + (hex.length < 2 ? '000' : '00') + hex;
+                                }) + '"';
+            }
             return String(obj);
         }
         var json = [];
@@ -20,16 +33,20 @@ var TCV_JSON = {
                 var vt = typeof (v);
                 if (vt === "function" || vt === "undefined") continue;
                 var valStr = (vt === "object" && v !== null) ? TCV_JSON.stringify(v) :
-                    (vt === "string" ? '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"' : String(v));
+                    (vt === "string" ? TCV_JSON.stringify(v) : String(v));
                 json.push((isArr ? "" : '"' + n + '":') + valStr);
             }
         }
         return (isArr ? "[" : "{") + json.join(",") + (isArr ? "]" : "}");
     },
     parse: function (str) {
+        if (typeof JSON !== "undefined" && JSON && typeof JSON.parse === "function") {
+            try { return JSON.parse(str); } catch (e) {}
+        }
         return eval("(" + str + ")");
     }
 };
+
 
 var TCV_Host = {
     /**
@@ -99,6 +116,17 @@ var TCV_Host = {
                     return docFolder.fsName;
                 }
                 return Folder.myDocuments.fsName;
+            }
+            var homeDocs = new Folder("~/Documents");
+            if (homeDocs.exists) {
+                var homeTcv = new Folder(homeDocs.fsName + "/TCV_Captions");
+                if (!homeTcv.exists) {
+                    homeTcv.create();
+                }
+                if (homeTcv.exists) {
+                    return homeTcv.fsName;
+                }
+                return homeDocs.fsName;
             }
 
             // 3. Desktop
@@ -400,17 +428,30 @@ var TCV_Host = {
         try {
             var foldersToCheck = [];
 
-            // 1. Current Project folder
+            // 1. Current Project folder & TCV_Captions folder
             if (app.project && app.project.path) {
                 var prjFile = new File(app.project.path);
                 if (prjFile.parent && prjFile.parent.exists) {
-                    foldersToCheck.push(prjFile.parent);
+                    var prjFolder = prjFile.parent;
+                    var tcvPrjFolder = new Folder(prjFolder.fsName + "/TCV_Captions");
+                    if (tcvPrjFolder.exists) {
+                        foldersToCheck.push(tcvPrjFolder);
+                    }
+                    foldersToCheck.push(prjFolder);
                 }
             }
 
-            // 2. Desktop
-            if (Folder.desktop && Folder.desktop.exists) {
-                foldersToCheck.push(Folder.desktop);
+            // 2. Documents & Documents/TCV_Captions
+            if (Folder.myDocuments && Folder.myDocuments.exists) {
+                var docTcv = new Folder(Folder.myDocuments.fsName + "/TCV_Captions");
+                if (docTcv.exists) foldersToCheck.push(docTcv);
+                foldersToCheck.push(Folder.myDocuments);
+            }
+            var homeDocs = new Folder("~/Documents");
+            if (homeDocs.exists) {
+                var homeTcv = new Folder(homeDocs.fsName + "/TCV_Captions");
+                if (homeTcv.exists) foldersToCheck.push(homeTcv);
+                foldersToCheck.push(homeDocs);
             }
 
             // 3. User Downloads
@@ -419,9 +460,9 @@ var TCV_Host = {
                 foldersToCheck.push(dl);
             }
 
-            // 4. Documents
-            if (Folder.myDocuments && Folder.myDocuments.exists) {
-                foldersToCheck.push(Folder.myDocuments);
+            // 4. Desktop
+            if (Folder.desktop && Folder.desktop.exists) {
+                foldersToCheck.push(Folder.desktop);
             }
 
             var newestFile = null;

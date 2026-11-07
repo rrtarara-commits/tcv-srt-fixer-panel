@@ -75,15 +75,17 @@
   }
 
   function formatTimecode(seconds) {
-    const s = Math.max(0, seconds || 0);
-    const hrs = Math.floor(s / 3600);
-    const mins = Math.floor((s % 3600) / 60);
-    const secs = Math.floor(s % 60);
-    const ms = Math.floor((s - Math.floor(s)) * 1000);
+    const totalMs = Math.max(0, Math.round((Number(seconds) || 0) * 1000));
+    const ms = totalMs % 1000;
+    const totalSecs = Math.floor(totalMs / 1000);
+    const secs = totalSecs % 60;
+    const mins = Math.floor(totalSecs / 60) % 60;
+    const hrs = Math.floor(totalSecs / 3600);
 
     const pad = (n, z = 2) => String(n).padStart(z, '0');
     return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
   }
+
 
   // --- Typography Normalizer ---
   function normalizeTypography(text) {
@@ -249,11 +251,11 @@
       cue.hasCpsWarning = cue.cps > 20.0;
       cue.hasShortDuration = cue.durationSec < state.minDurationSec;
 
-      // Overlap checking with next cue
+      // Overlap checking with next cue (standard minimum gap compliance)
       if (i < cues.length - 1) {
         const nextCue = cues[i + 1];
         cue.gapMs = Math.round((nextCue.startSec - cue.endSec) * 1000);
-        cue.hasCollision = cue.gapMs < 0 || cue.endSec >= nextCue.startSec;
+        cue.hasCollision = cue.gapMs < state.minGapMs;
       } else {
         cue.gapMs = 9999;
         cue.hasCollision = false;
@@ -316,14 +318,16 @@
         }
       }
 
-      // 4. Resolve overlap / collision with next cue
+      // 4. Resolve overlap / collision with next cue (strictly enforce minGap)
       if (i < cues.length - 1) {
         const nextCue = cues[i + 1];
-        if (cue.endSec >= nextCue.startSec) {
+        if (cue.endSec > nextCue.startSec - minGapSec) {
           const newEnd = Math.max(cue.startSec + 0.3, nextCue.startSec - minGapSec);
-          cue.endSec = newEnd;
-          cue.endTime = formatTimecode(cue.endSec);
-          changes++;
+          if (Math.abs(newEnd - cue.endSec) > 0.005) {
+            cue.endSec = newEnd;
+            cue.endTime = formatTimecode(cue.endSec);
+            changes++;
+          }
         }
       }
     }
@@ -414,14 +418,6 @@
         <div class="kpi-label">Modified</div>
       </div>
     `;
-
-    grid.querySelectorAll('.kpi-card').forEach(card => {
-      card.addEventListener('click', () => {
-        state.activeFilter = card.getAttribute('data-filter');
-        renderAuditKPIs();
-        renderCueList();
-      });
-    });
   }
 
   function renderCueList() {
@@ -486,23 +482,80 @@
     }
 
     container.innerHTML = html;
+  }
 
-    // Attach listeners
-    container.querySelectorAll('.cue-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('button') || e.target.closest('.cue-text-box')) return;
-        const id = parseInt(card.getAttribute('data-id'), 10);
-        selectCue(id);
+  // Delegated Cue List and KPI Event Handling (Zero closure overhead on re-renders)
+  let cueListEventsInitialized = false;
+  function initCueListEvents() {
+    if (cueListEventsInitialized) return;
+    const container = document.getElementById('cue-list');
+    const kpiGrid = document.getElementById('kpi-grid');
+
+    if (kpiGrid) {
+      kpiGrid.addEventListener('click', (e) => {
+        const card = e.target.closest('.kpi-card');
+        if (card) {
+          state.activeFilter = card.getAttribute('data-filter');
+          renderAuditKPIs();
+          renderCueList();
+        }
       });
-    });
+    }
 
-    container.querySelectorAll('.cue-text-box').forEach(box => {
-      box.addEventListener('blur', () => {
+    if (container) {
+      cueListEventsInitialized = true;
+
+      // Delegated click handler
+      container.addEventListener('click', (e) => {
+        // 1. Revert button
+        const revertBtn = e.target.closest('.btn-revert');
+        if (revertBtn) {
+          const id = parseInt(revertBtn.getAttribute('data-id'), 10);
+          const cue = state.cues.find(c => c.id === id);
+          if (cue) {
+            cue.currentText = cue.originalText;
+            recalcMetrics(state.cues);
+            renderAuditKPIs();
+            renderCueList();
+            updatePreview(cue);
+          }
+          return;
+        }
+
+        // 2. Fix Gap button
+        const fixGapBtn = e.target.closest('.btn-fix-gap');
+        if (fixGapBtn) {
+          const id = parseInt(fixGapBtn.getAttribute('data-id'), 10);
+          const idx = state.cues.findIndex(c => c.id === id);
+          if (idx !== -1 && idx < state.cues.length - 1) {
+            const next = state.cues[idx + 1];
+            state.cues[idx].endSec = Math.max(state.cues[idx].startSec + 0.3, next.startSec - (state.minGapMs / 1000));
+            state.cues[idx].endTime = formatTimecode(state.cues[idx].endSec);
+            recalcMetrics(state.cues);
+            renderAuditKPIs();
+            renderCueList();
+          }
+          return;
+        }
+
+        // 3. Card click (skip if user is interacting with contenteditable text box)
+        if (e.target.closest('.cue-text-box')) return;
+        const card = e.target.closest('.cue-card');
+        if (card) {
+          const id = parseInt(card.getAttribute('data-id'), 10);
+          if (id) selectCue(id);
+        }
+      });
+
+      // Delegated focusout (blur) handler for cue text edits
+      container.addEventListener('focusout', (e) => {
+        const box = e.target.closest('.cue-text-box');
+        if (!box) return;
         const id = parseInt(box.getAttribute('data-id'), 10);
         const cue = state.cues.find(c => c.id === id);
         if (cue) {
           const newText = box.innerText.trim();
-          if (newText !== cue.currentText) {
+          if (newText !== cue.currentText.trim()) {
             cue.currentText = newText;
             recalcMetrics(state.cues);
             renderAuditKPIs();
@@ -511,36 +564,14 @@
           }
         }
       });
-    });
 
-    container.querySelectorAll('.btn-revert').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const cue = state.cues.find(c => c.id === id);
-        if (cue) {
-          cue.currentText = cue.originalText;
-          recalcMetrics(state.cues);
-          renderAuditKPIs();
-          renderCueList();
-          updatePreview(cue);
+      // Prevent accidental newlines or unhandled keys in contenteditable
+      container.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && e.target.closest('.cue-text-box')) {
+          e.target.blur();
         }
       });
-    });
-
-    container.querySelectorAll('.btn-fix-gap').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const idx = state.cues.findIndex(c => c.id === id);
-        if (idx !== -1 && idx < state.cues.length - 1) {
-          const next = state.cues[idx + 1];
-          state.cues[idx].endSec = Math.max(state.cues[idx].startSec + 0.3, next.startSec - (state.minGapMs / 1000));
-          state.cues[idx].endTime = formatTimecode(state.cues[idx].endSec);
-          recalcMetrics(state.cues);
-          renderAuditKPIs();
-          renderCueList();
-        }
-      });
-    });
+    }
   }
 
   function selectCue(id) {
@@ -549,16 +580,21 @@
     if (cue) {
       updatePreview(cue);
     }
-    // Update card selection visual
-    document.querySelectorAll('.cue-card').forEach(card => {
-      if (parseInt(card.getAttribute('data-id'), 10) === id) {
-        card.classList.add('selected');
-        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      } else {
-        card.classList.remove('selected');
-      }
-    });
+    const container = document.getElementById('cue-list');
+    if (!container) return;
+
+    // Fast O(1) class toggle instead of iterating all cards
+    const prev = container.querySelector('.cue-card.selected');
+    if (prev && parseInt(prev.getAttribute('data-id'), 10) !== id) {
+      prev.classList.remove('selected');
+    }
+    const next = container.querySelector(`.cue-card[data-id="${id}"]`);
+    if (next) {
+      next.classList.add('selected');
+      next.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }
+
 
   function updatePreview(cue) {
     const previewText = document.getElementById('preview-caption');
@@ -658,8 +694,21 @@
         if (callback) callback({ success: true, path: targetPath });
         return;
       } catch (err) {
-        console.warn('[Node fs write error, using ExtendScript fallback]', err);
+        console.warn('[Node fs write error, using CEP fallback]', err);
       }
+    }
+
+    // CEP native filesystem fallback
+    try {
+      if (typeof window !== 'undefined' && window.cep && window.cep.fs && typeof window.cep.fs.writeFile === 'function') {
+        const cepResult = window.cep.fs.writeFile(targetPath, normalized, (window.cep.encoding && window.cep.encoding.UTF8) || 'UTF-8');
+        if (cepResult && (cepResult.err === 0 || cepResult.err === '0')) {
+          if (callback) callback({ success: true, path: targetPath });
+          return;
+        }
+      }
+    } catch (cepErr) {
+      console.warn('[window.cep.fs write error, using ExtendScript fallback]', cepErr);
     }
 
     // ExtendScript fallback
@@ -1001,7 +1050,10 @@ Your task:
           // Progressive UI updates after each batch completes!
           recalcMetrics(state.cues);
           renderAuditKPIs();
-          renderCueList();
+          const qcTabActive = document.getElementById('tab-qc')?.classList.contains('active');
+          if (qcTabActive) {
+            renderCueList();
+          }
         }
       }
 
@@ -1009,6 +1061,7 @@ Your task:
         if (progressBar) progressBar.style.width = '100%';
         if (progressPct) progressPct.innerText = '100%';
         if (progressStatus) progressStatus.innerText = 'Complete!';
+        renderCueList();
         showBanner(`AI QC Complete! Updated ${totalUpdated} subtitle cues across ${totalCues} total cues.`, 'success');
       }
     } catch (err) {
@@ -1074,6 +1127,9 @@ Your task:
 
   // --- Initializer and Event Binding ---
   function init() {
+    // Initialize delegated cue list and KPI events (avoids per-element listener churn)
+    initCueListEvents();
+
     // Nav Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1083,6 +1139,9 @@ Your task:
         const tabId = btn.getAttribute('data-tab');
         const target = document.getElementById(tabId);
         if (target) target.classList.add('active');
+        if (tabId === 'tab-qc') {
+          renderCueList();
+        }
       });
     });
 
@@ -1355,6 +1414,15 @@ Your task:
     syncModelUi(state.aiModel);
     if (document.getElementById('ai-glossary')) document.getElementById('ai-glossary').value = state.glossary;
     if (document.getElementById('ai-context')) document.getElementById('ai-context').value = state.context;
+
+    // Panel Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      // Cmd+S or Ctrl+S: Quick Sync to Timeline
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        applyToTimeline();
+      }
+    });
 
     // Refresh Premiere connection
     refreshPremiereStatus();

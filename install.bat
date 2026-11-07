@@ -20,16 +20,16 @@ xcopy /E /Y /I "%SRC_DIR%jsx" "%EXT_DIR%\jsx"
 copy /Y "%SRC_DIR%index.html" "%EXT_DIR%\"
 copy /Y "%SRC_DIR%.debug" "%EXT_DIR%\"
 
-echo Enabling CEP PlayerDebugMode in Windows Registry...
-reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.9" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
-reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.10" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
-reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
-reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
-reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.13" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
+echo Enabling CEP PlayerDebugMode in Windows Registry (CSXS 9 through 20)...
+for /L %%V in (9,1,20) do (
+    reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.%%V" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
+)
 
 echo --------------------------------------------------------
 echo Installation Complete!
+echo Compatible with Adobe Premiere Pro 2024, 2025, 2026, 2027+
 echo Restart Adobe Premiere Pro, then find the panel under:
 echo Window ^> Extensions ^> TCV SRT Fixer
 echo --------------------------------------------------------
 pause
+
