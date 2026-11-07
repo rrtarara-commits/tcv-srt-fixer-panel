@@ -21,8 +21,12 @@
     aiProvider: localStorage.getItem('tcv_ai_provider') || 'gemini', // 'gemini' or 'openai'
     aiModel: (() => {
       let m = localStorage.getItem('tcv_ai_model');
-      if (!m || m === 'gemini-1.5-flash' || m === 'gemini-1.5-pro' || m === 'gemini-flash') {
-        m = 'gemini-2.0-flash';
+      const legacyModels = [
+        'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-flash',
+        'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'
+      ];
+      if (!m || legacyModels.includes(m)) {
+        m = 'gemini-3.8-flash';
         localStorage.setItem('tcv_ai_model', m);
       }
       return m;
@@ -674,13 +678,18 @@
   }
 
   // --- AI QC & Rewriter Implementation ---
+  const LEGACY_GEMINI_MODELS = [
+    'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-flash',
+    'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'
+  ];
+
   function syncModelUi(modelVal) {
     const modelSelect = document.getElementById('ai-model');
     const customModelInput = document.getElementById('ai-model-custom');
     if (!modelSelect) return;
     let clean = (modelVal || '').trim().replace(/^models\//, '');
-    if (!clean || clean === 'gemini-1.5-flash' || clean === 'gemini-1.5-pro' || clean === 'gemini-flash') {
-      clean = 'gemini-2.0-flash';
+    if (!clean || LEGACY_GEMINI_MODELS.includes(clean)) {
+      clean = 'gemini-3.8-flash';
     }
     const hasOption = Array.from(modelSelect.options).some(o => o.value === clean);
     if (hasOption) {
@@ -724,14 +733,14 @@
 
     let model = (modelSelect && modelSelect.value === 'custom'
       ? (customInput?.value || '').trim()
-      : modelSelect?.value) || state.aiModel || 'gemini-2.0-flash';
+      : modelSelect?.value) || state.aiModel || 'gemini-3.8-flash';
 
     // Strip "models/" prefix if user pasted it
     model = model.trim().replace(/^models\//, '');
 
-    // Migrate deprecated 1.5 models automatically
-    if (model === 'gemini-1.5-flash' || model === 'gemini-1.5-pro' || model === 'gemini-flash') {
-      model = 'gemini-2.0-flash';
+    // Migrate deprecated models automatically
+    if (LEGACY_GEMINI_MODELS.includes(model)) {
+      model = 'gemini-3.8-flash';
       syncModelUi(model);
     }
 
@@ -795,13 +804,24 @@ Your task:
 
         let response = await callGemini(model);
 
-        // Auto fallback retry if 404 Not Found (e.g. deprecated model ID)
-        if (!response.ok && response.status === 404 && model !== 'gemini-2.0-flash') {
-          console.warn(`Model "${model}" returned 404. Falling back to gemini-2.0-flash...`);
-          model = 'gemini-2.0-flash';
-          syncModelUi(model);
-          localStorage.setItem('tcv_ai_model', model);
-          response = await callGemini('gemini-2.0-flash');
+        // Auto fallback retry if model not found or retired/unavailable
+        if (!response.ok && model !== 'gemini-3.8-flash') {
+          const errClone = response.clone();
+          const errJson = await errClone.json().catch(() => ({}));
+          const errMsg = (errJson.error?.message || '').toLowerCase();
+          if (
+            response.status === 404 ||
+            response.status === 400 ||
+            errMsg.includes('not found') ||
+            errMsg.includes('no longer available') ||
+            errMsg.includes('gemini-3.8-flash')
+          ) {
+            console.warn(`Model "${model}" failed (${errMsg}). Falling back to gemini-3.8-flash...`);
+            model = 'gemini-3.8-flash';
+            syncModelUi(model);
+            localStorage.setItem('tcv_ai_model', model);
+            response = await callGemini('gemini-3.8-flash');
+          }
         }
 
         if (!response.ok) {
@@ -1167,7 +1187,7 @@ Your task:
         state.aiProvider = p;
         localStorage.setItem('tcv_ai_provider', p);
         if (p === 'gemini' && modelSelect && (modelSelect.value.startsWith('gpt-') || modelSelect.value === 'custom')) {
-          syncModelUi('gemini-2.0-flash');
+          syncModelUi('gemini-3.8-flash');
         } else if (p === 'openai' && modelSelect && (modelSelect.value.startsWith('gemini-') || modelSelect.value === 'custom')) {
           syncModelUi('gpt-4o-mini');
         }
