@@ -44,13 +44,36 @@ Built directly from the specification and engine of [`tcv-srt-fixer.ai.studio`](
 
 ## Installation Guide (For You & Teammates)
 
-### 1-Click Install via Git (Recommended)
+We provide three simple ways to install the panel—pick the one that best suits your team:
+
+### Option 1: 1-Click Double-Click Installer (Easiest for Teammates — No Terminal Required!)
+
+1. Download the [TCV-SRT-Fixer-Installer.zip](https://github.com/rrtarara-commits/tcv-srt-fixer-panel/releases) package and unzip it.
+2. Run the installer for your operating system:
+   - **macOS:** Double-click `Install-Mac.command` in Finder.
+     *(Terminal opens, automatically copies the panel into Adobe's extension folder, registers Premiere Pro compatibility, and confirms completion. Press Enter to exit).*
+   - **Windows:** Double-click `Install-Windows.bat` in File Explorer.
+     *(Copies the extension to `%APPDATA%\Adobe\CEP\extensions` and sets Registry keys).*
+3. Restart Adobe Premiere Pro, then open:
+   `Window > Extensions > TCV SRT Fixer`.
+
+---
+
+### Option 2: Drag-and-Drop `.zxp` Installer (Via ZXP Installer GUI)
+
+If your editors use [ZXP Installer (aescripts)](https://zxpinstaller.com/) or [Anastasiy's Extension Manager](https://install.anastasiy.com/):
+1. Download `com.tcv.srtfixer.panel.zxp`.
+2. Drag and drop the `.zxp` file onto ZXP Installer.
+3. Restart Premiere Pro and open `Window > Extensions > TCV SRT Fixer`.
+
+---
+
+### Option 3: Command Line / Git (For Developers)
 
 #### On macOS
 ```bash
 git clone https://github.com/rrtarara-commits/tcv-srt-fixer-panel.git
 cd tcv-srt-fixer-panel
-chmod +x install.sh
 ./install.sh
 ```
 
@@ -61,10 +84,8 @@ cd tcv-srt-fixer-panel
 install.bat
 ```
 
-> **Note:** The installers automatically copy panel files to the Adobe CEP extensions directory and enable `PlayerDebugMode` across CSXS versions 9 through 20 (guaranteeing compatibility with Premiere Pro 2024, 2025, 2026, and 2027+).
-
 ### Updating to the Latest Version
-If you already have the repository cloned, simply run:
+If you have the repository cloned:
 ```bash
 # macOS
 git pull && ./install.sh
@@ -73,8 +94,8 @@ git pull && ./install.sh
 git pull && install.bat
 ```
 
-### Manual Installation (If Preferred)
-Copy the `tcv-srt-fixer-panel` folder to your Adobe CEP directory:
+### Manual Installation (Folder Copy)
+If you prefer to copy the folder manually, copy `tcv-srt-fixer-panel` to:
 - **macOS:** `~/Library/Application Support/Adobe/CEP/extensions/com.tcv.srtfixer/`
 - **Windows:** `%APPDATA%\Adobe\CEP\extensions\com.tcv.srtfixer\`
 
