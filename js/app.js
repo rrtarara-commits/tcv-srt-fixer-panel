@@ -678,6 +678,9 @@
   }
 
   // --- AI QC & Rewriter Implementation ---
+  let aiAbortController = null;
+  let isAiRunning = false;
+
   const LEGACY_GEMINI_MODELS = [
     'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-flash',
     'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'
@@ -735,10 +738,7 @@
       ? (customInput?.value || '').trim()
       : modelSelect?.value) || state.aiModel || 'gemini-3.8-flash';
 
-    // Strip "models/" prefix if user pasted it
     model = model.trim().replace(/^models\//, '');
-
-    // Migrate deprecated models automatically
     if (LEGACY_GEMINI_MODELS.includes(model)) {
       model = 'gemini-3.8-flash';
       syncModelUi(model);
@@ -755,21 +755,18 @@
     localStorage.setItem('tcv_context', context);
 
     const btn = document.getElementById('run-ai-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerText = 'Analyzing & Correcting...';
-    }
+    const cancelBtn = document.getElementById('cancel-ai-btn');
+    const progressWrap = document.getElementById('ai-progress-wrap');
+    const progressBar = document.getElementById('ai-progress-bar');
+    const progressStatus = document.getElementById('ai-progress-status');
+    const progressPct = document.getElementById('ai-progress-pct');
 
-    try {
-      const cuesPayload = state.cues.map(c => ({
-        id: c.id,
-        text: c.currentText,
-        timecode: `${c.startTime} --> ${c.endTime}`,
-        durationSec: c.durationSec,
-        cpl: c.cpl
-      }));
+    isAiRunning = true;
+    if (btn) btn.disabled = true;
+    if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    if (progressWrap) progressWrap.style.display = 'block';
 
-      const systemPrompt = `You are an elite broadcast subtitle QC editor and conform specialist.
+    const systemPrompt = `You are an elite broadcast subtitle QC editor and conform specialist.
 Your task:
 1. Fix all typos, spelling, capitalization, and punctuation errors.
 2. Adhere strictly to the Glossary: "${glossary}".
@@ -783,109 +780,197 @@ Your task:
   ]
 }`;
 
-      let correctedList = null;
+    // Process in fast, bite-sized batches (35 cues each)
+    const BATCH_SIZE = 35;
+    const totalCues = state.cues.length;
+    let totalUpdated = 0;
 
-      if (provider === 'gemini') {
-        const callGemini = async (targetModel) => {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
-          return await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{ text: systemPrompt + '\n\nInput Cues:\n' + JSON.stringify(cuesPayload) }]
-              }],
-              generationConfig: {
-                responseMimeType: 'application/json'
-              }
-            })
-          });
+    const callGeminiBatch = async (targetModel, batchPayload) => {
+      aiAbortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        if (aiAbortController) aiAbortController.abort();
+      }, 40000);
+
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+        const reqBody = {
+          contents: [{
+            parts: [{ text: systemPrompt + '\n\nInput Cues:\n' + JSON.stringify(batchPayload) }]
+          }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingLevel: 'low' }
+          }
         };
 
-        let response = await callGemini(model);
+        let res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody),
+          signal: aiAbortController.signal
+        });
 
-        // Auto fallback retry if model not found or retired/unavailable
-        if (!response.ok && model !== 'gemini-3.8-flash') {
-          const errClone = response.clone();
-          const errJson = await errClone.json().catch(() => ({}));
-          const errMsg = (errJson.error?.message || '').toLowerCase();
-          if (
-            response.status === 404 ||
-            response.status === 400 ||
-            errMsg.includes('not found') ||
-            errMsg.includes('no longer available') ||
-            errMsg.includes('gemini-3.8-flash')
-          ) {
-            console.warn(`Model "${model}" failed (${errMsg}). Falling back to gemini-3.8-flash...`);
-            model = 'gemini-3.8-flash';
-            syncModelUi(model);
-            localStorage.setItem('tcv_ai_model', model);
-            response = await callGemini('gemini-3.8-flash');
+        // If thinkingConfig rejected by older model, retry without it
+        if (!res.ok && res.status === 400) {
+          const clone = res.clone();
+          const err = await clone.json().catch(() => ({}));
+          if (err.error?.message?.includes('thinkingConfig') || err.error?.message?.includes('thinkingLevel')) {
+            delete reqBody.generationConfig.thinkingConfig;
+            res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(reqBody),
+              signal: aiAbortController.signal
+            });
           }
         }
+        return res;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `Gemini API call failed (${response.status})`);
-        }
+    const callOpenAiBatch = async (targetModel, batchPayload) => {
+      aiAbortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        if (aiAbortController) aiAbortController.abort();
+      }, 40000);
 
-        const data = await response.json();
-        const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        const parsed = parseAiJsonResponse(jsonText);
-        correctedList = parsed.correctedCues;
-      } else {
-        // OpenAI compatible endpoint
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      try {
+        return await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
           },
           body: JSON.stringify({
-            model: model,
+            model: targetModel,
             messages: [
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: 'Input Cues:\n' + JSON.stringify(cuesPayload) }
+              { role: 'user', content: 'Input Cues:\n' + JSON.stringify(batchPayload) }
             ],
             response_format: { type: 'json_object' }
-          })
+          }),
+          signal: aiAbortController.signal
         });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `OpenAI API call failed (${response.status})`);
+    try {
+      for (let i = 0; i < totalCues; i += BATCH_SIZE) {
+        if (!isAiRunning) {
+          showBanner('AI QC cancelled by user.', 'info');
+          break;
         }
 
-        const data = await response.json();
-        const jsonText = data.choices?.[0]?.message?.content;
-        const parsed = parseAiJsonResponse(jsonText);
-        correctedList = parsed.correctedCues;
+        const batch = state.cues.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(totalCues / BATCH_SIZE);
+        const startIdx = i + 1;
+        const endIdx = Math.min(i + BATCH_SIZE, totalCues);
+        const pct = Math.round((i / totalCues) * 100);
+
+        if (btn) btn.innerText = `Analyzing batch ${batchNum}/${totalBatches} (${pct}%)...`;
+        if (progressStatus) progressStatus.innerText = `Batch ${batchNum}/${totalBatches} (cues ${startIdx}–${endIdx})`;
+        if (progressPct) progressPct.innerText = `${pct}%`;
+        if (progressBar) progressBar.style.width = `${pct}%`;
+
+        const cuesPayload = batch.map(c => ({
+          id: c.id,
+          text: c.currentText,
+          timecode: `${c.startTime} --> ${c.endTime}`,
+          durationSec: c.durationSec,
+          cpl: c.cpl
+        }));
+
+        let correctedList = null;
+
+        if (provider === 'gemini') {
+          let response = await callGeminiBatch(model, cuesPayload);
+
+          // Auto fallback retry if model not found or retired
+          if (!response.ok && model !== 'gemini-3.8-flash') {
+            const errClone = response.clone();
+            const errJson = await errClone.json().catch(() => ({}));
+            const errMsg = (errJson.error?.message || '').toLowerCase();
+            if (
+              response.status === 404 ||
+              response.status === 400 ||
+              errMsg.includes('not found') ||
+              errMsg.includes('no longer available') ||
+              errMsg.includes('gemini-3.8-flash')
+            ) {
+              console.warn(`Model "${model}" failed (${errMsg}). Auto-retrying with gemini-3.8-flash...`);
+              model = 'gemini-3.8-flash';
+              syncModelUi(model);
+              localStorage.setItem('tcv_ai_model', model);
+              response = await callGeminiBatch('gemini-3.8-flash', cuesPayload);
+            }
+          }
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `Gemini API call failed (${response.status}) on batch ${batchNum}`);
+          }
+
+          const data = await response.json();
+          const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          const parsed = parseAiJsonResponse(jsonText);
+          correctedList = parsed.correctedCues;
+        } else {
+          // OpenAI call
+          const response = await callOpenAiBatch(model, cuesPayload);
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `OpenAI API call failed (${response.status}) on batch ${batchNum}`);
+          }
+          const data = await response.json();
+          const jsonText = data.choices?.[0]?.message?.content;
+          const parsed = parseAiJsonResponse(jsonText);
+          correctedList = parsed.correctedCues;
+        }
+
+        if (Array.isArray(correctedList)) {
+          for (let item of correctedList) {
+            const cue = state.cues.find(c => c.id === item.id);
+            if (cue && item.text && item.text.trim() !== cue.currentText.trim()) {
+              cue.currentText = item.text.trim();
+              totalUpdated++;
+            }
+          }
+          // Progressive UI updates after each batch completes!
+          recalcMetrics(state.cues);
+          renderAuditKPIs();
+          renderCueList();
+        }
       }
 
-      if (Array.isArray(correctedList)) {
-        let applied = 0;
-        for (let item of correctedList) {
-          const cue = state.cues.find(c => c.id === item.id);
-          if (cue && item.text && item.text.trim() !== cue.currentText.trim()) {
-            cue.currentText = item.text.trim();
-            applied++;
-          }
-        }
-        recalcMetrics(state.cues);
-        renderAuditKPIs();
-        renderCueList();
-        showBanner(`AI QC successfully updated ${applied} subtitle cues!`, 'success');
-      } else {
-        throw new Error('Invalid JSON format returned from AI model.');
+      if (isAiRunning) {
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressPct) progressPct.innerText = '100%';
+        if (progressStatus) progressStatus.innerText = 'Complete!';
+        showBanner(`AI QC Complete! Updated ${totalUpdated} subtitle cues across ${totalCues} total cues.`, 'success');
       }
     } catch (err) {
       console.error(err);
-      showBanner(`AI QC Error: ${err.message}`, 'error');
+      if (err.name === 'AbortError') {
+        showBanner('AI request timed out after 40 seconds. Check network or try smaller chunks.', 'error');
+      } else {
+        showBanner(`AI QC Error: ${err.message}`, 'error');
+      }
     } finally {
+      isAiRunning = false;
+      aiAbortController = null;
       if (btn) {
         btn.disabled = false;
         btn.innerText = 'Run AI QC & Grammar Fix';
       }
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      setTimeout(() => {
+        if (!isAiRunning && progressWrap) progressWrap.style.display = 'none';
+      }, 3500);
     }
   }
 
@@ -1149,6 +1234,18 @@ Your task:
     const runAiBtn = document.getElementById('run-ai-btn');
     if (runAiBtn) {
       runAiBtn.addEventListener('click', runAiQc);
+    }
+
+    // Cancel AI Button
+    const cancelAiBtn = document.getElementById('cancel-ai-btn');
+    if (cancelAiBtn) {
+      cancelAiBtn.addEventListener('click', () => {
+        isAiRunning = false;
+        if (aiAbortController) {
+          aiAbortController.abort();
+        }
+        showBanner('Cancelling AI analysis...', 'info');
+      });
     }
 
     // Wire AI Settings & Model listeners

@@ -136,9 +136,24 @@
         <input type="text" id="ai-context" placeholder="e.g., Tech interview about AI video editing workflows">
       </div>
 
-      <button class="btn btn-primary" id="run-ai-btn" style="margin-top: 6px; justify-content: center;">
-        Run AI QC &amp; Grammar Fix
-      </button>
+      <div style="display:flex; gap: 6px; margin-top: 6px;">
+        <button class="btn btn-primary" id="run-ai-btn" style="flex: 1; justify-content: center;">
+          Run AI QC &amp; Grammar Fix
+        </button>
+        <button class="btn btn-warning" id="cancel-ai-btn" style="display:none; width: 75px; justify-content: center;">
+          Cancel
+        </button>
+      </div>
+
+      <div id="ai-progress-wrap" style="display:none; margin-top: 8px;">
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-bottom: 4px;">
+          <span id="ai-progress-status">Preparing cues...</span>
+          <span id="ai-progress-pct">0%</span>
+        </div>
+        <div style="width:100%; height:4px; background:var(--bg-app); border-radius:2px; overflow:hidden;">
+          <div id="ai-progress-bar" style="width:0%; height:100%; background:var(--adobe-blue); transition: width 0.3s;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
