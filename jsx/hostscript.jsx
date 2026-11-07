@@ -296,5 +296,80 @@ var TCV_Host = {
         } catch (e) {
             return TCV_JSON.stringify({ success: false, error: e.toString() });
         }
+    },
+
+    /**
+     * Automatically scan Project directory, Desktop, and Downloads for the most recently exported .srt
+     */
+    findRecentSrtOnDisk: function () {
+        try {
+            var foldersToCheck = [];
+
+            // 1. Current Project folder
+            if (app.project && app.project.path) {
+                var prjFile = new File(app.project.path);
+                if (prjFile.parent && prjFile.parent.exists) {
+                    foldersToCheck.push(prjFile.parent);
+                }
+            }
+
+            // 2. Desktop
+            if (Folder.desktop && Folder.desktop.exists) {
+                foldersToCheck.push(Folder.desktop);
+            }
+
+            // 3. User Downloads
+            var dl = new Folder("~/Downloads");
+            if (dl.exists) {
+                foldersToCheck.push(dl);
+            }
+
+            // 4. Documents
+            if (Folder.myDocuments && Folder.myDocuments.exists) {
+                foldersToCheck.push(Folder.myDocuments);
+            }
+
+            var newestFile = null;
+            var newestTime = 0;
+
+            for (var i = 0; i < foldersToCheck.length; i++) {
+                var folder = foldersToCheck[i];
+                var files = folder.getFiles("*.srt");
+                if (files) {
+                    for (var j = 0; j < files.length; j++) {
+                        var f = files[j];
+                        if (f instanceof File) {
+                            var m = f.modified ? f.modified.getTime() : 0;
+                            if (m > newestTime) {
+                                newestTime = m;
+                                newestFile = f;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (newestFile) {
+                newestFile.encoding = "UTF-8";
+                if (newestFile.open("r")) {
+                    var content = newestFile.read();
+                    newestFile.close();
+                    return TCV_JSON.stringify({
+                        success: true,
+                        path: newestFile.fsName,
+                        name: newestFile.name,
+                        modifiedTime: newestTime,
+                        content: content
+                    });
+                }
+            }
+
+            return TCV_JSON.stringify({
+                success: false,
+                error: "No recent .srt file found. In Premiere's Text panel (Captions tab), click ... > 'Export to SRT file', then click Auto-Detect."
+            });
+        } catch (e) {
+            return TCV_JSON.stringify({ success: false, error: e.toString() });
+        }
     }
 };

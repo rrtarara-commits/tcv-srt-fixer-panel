@@ -923,35 +923,24 @@ Your task:
       });
     }
 
-    // Grab from Premiere Clipboard Button (Direct Timeline/Text Panel Ingest)
-    const grabClipboardBtn = document.getElementById('grab-clipboard-btn');
-    if (grabClipboardBtn) {
-      grabClipboardBtn.addEventListener('click', async () => {
-        try {
-          let text = '';
-          if (navigator.clipboard && navigator.clipboard.readText) {
-            text = await navigator.clipboard.readText();
+    // Auto-Detect Latest SRT Button (1-Click Ingest from Premiere Export)
+    const autoDetectBtn = document.getElementById('auto-detect-srt-btn');
+    if (autoDetectBtn) {
+      autoDetectBtn.addEventListener('click', () => {
+        showBanner('Scanning project & export folders for newest SRT...', 'info');
+        evalExtendScript('TCV_Host.findRecentSrtOnDisk()', (res) => {
+          try {
+            const data = JSON.parse(res);
+            if (data.success && data.content) {
+              loadRawSrt(data.content, data.name);
+              showBanner(`⚡ Auto-detected and loaded: ${data.name}`, 'success');
+            } else {
+              showBanner(data.error || 'No recent SRT found. In Premiere Text panel, click ... > Export to SRT file first.', 'error');
+            }
+          } catch (e) {
+            showBanner('Auto-detect error: ' + e.message, 'error');
           }
-          if (!text || !text.trim()) {
-            text = prompt('Paste your copied captions from Premiere Text panel here:');
-          }
-          if (!text || !text.trim()) {
-            showBanner('No caption text found. Select captions in Premiere & press Cmd+C first.', 'error');
-            return;
-          }
-          const cues = parseSRT(text);
-          if (cues.length === 0) {
-            showBanner('Could not detect timecodes or subtitle lines in clipboard.', 'error');
-            return;
-          }
-          loadRawSrt(text, 'Premiere_Timeline_Captions');
-          showBanner(`Successfully ingested ${cues.length} cues directly from Premiere!`, 'success');
-        } catch (err) {
-          const fallback = prompt('Paste your copied captions here:');
-          if (fallback && fallback.trim()) {
-            loadRawSrt(fallback, 'Premiere_Timeline_Captions');
-          }
-        }
+        });
       });
     }
 
