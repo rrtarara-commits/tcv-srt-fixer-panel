@@ -19,7 +19,14 @@
     projectSrtFiles: [],
     apiKey: localStorage.getItem('tcv_api_key') || '',
     aiProvider: localStorage.getItem('tcv_ai_provider') || 'gemini', // 'gemini' or 'openai'
-    aiModel: localStorage.getItem('tcv_ai_model') || 'gemini-1.5-flash',
+    aiModel: (() => {
+      let m = localStorage.getItem('tcv_ai_model');
+      if (!m || m === 'gemini-1.5-flash' || m === 'gemini-1.5-pro' || m === 'gemini-flash') {
+        m = 'gemini-2.0-flash';
+        localStorage.setItem('tcv_ai_model', m);
+      }
+      return m;
+    })(),
     glossary: localStorage.getItem('tcv_glossary') || '',
     context: localStorage.getItem('tcv_context') || ''
   };
@@ -667,6 +674,38 @@
   }
 
   // --- AI QC & Rewriter Implementation ---
+  function syncModelUi(modelVal) {
+    const modelSelect = document.getElementById('ai-model');
+    const customModelInput = document.getElementById('ai-model-custom');
+    if (!modelSelect) return;
+    let clean = (modelVal || '').trim().replace(/^models\//, '');
+    if (!clean || clean === 'gemini-1.5-flash' || clean === 'gemini-1.5-pro' || clean === 'gemini-flash') {
+      clean = 'gemini-2.0-flash';
+    }
+    const hasOption = Array.from(modelSelect.options).some(o => o.value === clean);
+    if (hasOption) {
+      modelSelect.value = clean;
+      if (customModelInput) customModelInput.style.display = 'none';
+    } else {
+      modelSelect.value = 'custom';
+      if (customModelInput) {
+        customModelInput.value = clean;
+        customModelInput.style.display = 'block';
+      }
+    }
+  }
+
+  function parseAiJsonResponse(rawText) {
+    if (!rawText) throw new Error('AI returned an empty response.');
+    let clean = rawText.trim();
+    if (clean.startsWith('```json')) {
+      clean = clean.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+    } else if (clean.startsWith('```')) {
+      clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+    return JSON.parse(clean);
+  }
+
   async function runAiQc() {
     if (state.cues.length === 0) {
       showBanner('Load subtitles before running AI QC.', 'error');
@@ -680,7 +719,22 @@
     }
 
     const provider = document.getElementById('ai-provider')?.value || state.aiProvider;
-    const model = document.getElementById('ai-model')?.value || state.aiModel;
+    const modelSelect = document.getElementById('ai-model');
+    const customInput = document.getElementById('ai-model-custom');
+
+    let model = (modelSelect && modelSelect.value === 'custom'
+      ? (customInput?.value || '').trim()
+      : modelSelect?.value) || state.aiModel || 'gemini-2.0-flash';
+
+    // Strip "models/" prefix if user pasted it
+    model = model.trim().replace(/^models\//, '');
+
+    // Migrate deprecated 1.5 models automatically
+    if (model === 'gemini-1.5-flash' || model === 'gemini-1.5-pro' || model === 'gemini-flash') {
+      model = 'gemini-2.0-flash';
+      syncModelUi(model);
+    }
+
     const glossary = document.getElementById('ai-glossary')?.value.trim() || state.glossary;
     const context = document.getElementById('ai-context')?.value.trim() || state.context;
 
@@ -723,28 +777,41 @@ Your task:
       let correctedList = null;
 
       if (provider === 'gemini') {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ text: systemPrompt + '\n\nInput Cues:\n' + JSON.stringify(cuesPayload) }]
-            }],
-            generationConfig: {
-              responseMimeType: 'application/json'
-            }
-          })
-        });
+        const callGemini = async (targetModel) => {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+          return await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: systemPrompt + '\n\nInput Cues:\n' + JSON.stringify(cuesPayload) }]
+              }],
+              generationConfig: {
+                responseMimeType: 'application/json'
+              }
+            })
+          });
+        };
+
+        let response = await callGemini(model);
+
+        // Auto fallback retry if 404 Not Found (e.g. deprecated model ID)
+        if (!response.ok && response.status === 404 && model !== 'gemini-2.0-flash') {
+          console.warn(`Model "${model}" returned 404. Falling back to gemini-2.0-flash...`);
+          model = 'gemini-2.0-flash';
+          syncModelUi(model);
+          localStorage.setItem('tcv_ai_model', model);
+          response = await callGemini('gemini-2.0-flash');
+        }
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error?.message || 'Gemini API call failed');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `Gemini API call failed (${response.status})`);
         }
 
         const data = await response.json();
         const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        const parsed = JSON.parse(jsonText);
+        const parsed = parseAiJsonResponse(jsonText);
         correctedList = parsed.correctedCues;
       } else {
         // OpenAI compatible endpoint
@@ -765,13 +832,13 @@ Your task:
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error?.message || 'OpenAI API call failed');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `OpenAI API call failed (${response.status})`);
         }
 
         const data = await response.json();
         const jsonText = data.choices?.[0]?.message?.content;
-        const parsed = JSON.parse(jsonText);
+        const parsed = parseAiJsonResponse(jsonText);
         correctedList = parsed.correctedCues;
       }
 
@@ -1064,10 +1131,53 @@ Your task:
       runAiBtn.addEventListener('click', runAiQc);
     }
 
+    // Wire AI Settings & Model listeners
+    const modelSelect = document.getElementById('ai-model');
+    const customModelInput = document.getElementById('ai-model-custom');
+    const providerSelect = document.getElementById('ai-provider');
+
+    if (modelSelect) {
+      modelSelect.addEventListener('change', () => {
+        if (modelSelect.value === 'custom') {
+          if (customModelInput) {
+            customModelInput.style.display = 'block';
+            customModelInput.focus();
+          }
+        } else {
+          if (customModelInput) customModelInput.style.display = 'none';
+          state.aiModel = modelSelect.value;
+          localStorage.setItem('tcv_ai_model', state.aiModel);
+        }
+      });
+    }
+
+    if (customModelInput) {
+      customModelInput.addEventListener('input', () => {
+        const val = customModelInput.value.trim().replace(/^models\//, '');
+        if (val) {
+          state.aiModel = val;
+          localStorage.setItem('tcv_ai_model', val);
+        }
+      });
+    }
+
+    if (providerSelect) {
+      providerSelect.addEventListener('change', () => {
+        const p = providerSelect.value;
+        state.aiProvider = p;
+        localStorage.setItem('tcv_ai_provider', p);
+        if (p === 'gemini' && modelSelect && (modelSelect.value.startsWith('gpt-') || modelSelect.value === 'custom')) {
+          syncModelUi('gemini-2.0-flash');
+        } else if (p === 'openai' && modelSelect && (modelSelect.value.startsWith('gemini-') || modelSelect.value === 'custom')) {
+          syncModelUi('gpt-4o-mini');
+        }
+      });
+    }
+
     // Load stored AI settings into form
     if (document.getElementById('ai-api-key')) document.getElementById('ai-api-key').value = state.apiKey;
     if (document.getElementById('ai-provider')) document.getElementById('ai-provider').value = state.aiProvider;
-    if (document.getElementById('ai-model')) document.getElementById('ai-model').value = state.aiModel;
+    syncModelUi(state.aiModel);
     if (document.getElementById('ai-glossary')) document.getElementById('ai-glossary').value = state.glossary;
     if (document.getElementById('ai-context')) document.getElementById('ai-context').value = state.context;
 

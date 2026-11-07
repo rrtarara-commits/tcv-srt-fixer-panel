@@ -27,7 +27,7 @@ Built directly from the specification and engine of [`tcv-srt-fixer.ai.studio`](
 - Flags cues exceeding recommended reading speeds ($> 20\text{ CPS}$).
 
 ### 5. AI Precision QC & Smart Rewriter
-- Built-in integration with **Google Gemini** (`gemini-1.5-flash`, `gemini-2.0-flash`, `gemini-pro`) or **OpenAI** (`gpt-4o-mini`, `gpt-4o`).
+- Built-in integration with **Google Gemini** (`gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.0-flash-lite`) or **OpenAI** (`gpt-4o-mini`, `gpt-4o`). Auto-fallbacks for retired model IDs.
 - **Glossary Protection:** Strict preservation of proper nouns, company names, speaker names, and technical terms.
 - **Domain Context:** Tailors terminology to your project's specific niche.
 - **Word-by-Word Diff Viewer:** Highlights every added, removed, or changed word with instant click-to-revert.
