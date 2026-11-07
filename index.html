@@ -36,16 +36,24 @@
   <main class="tab-content active" id="tab-qc">
     <!-- Source Selection -->
     <div class="source-bar">
-      <select id="project-srt-select" style="flex: 1; min-width: 140px;" title="Select an SRT asset already in your Premiere project">
-        <option value="">-- Scan Project Bin for SRT --</option>
+      <button class="btn btn-sm btn-primary" id="grab-clipboard-btn" title="Click after selecting and copying (Cmd+C) captions in Premiere's Text panel">
+        &#128203; Grab from Premiere (Clipboard)
+      </button>
+      <select id="project-srt-select" style="flex: 1; min-width: 130px;" title="Select an SRT asset already in your Premiere project bin">
+        <option value="">-- Project Bin Captions --</option>
       </select>
       <button class="btn btn-sm" id="browse-srt-btn" title="Open an SRT file from your hard drive">
         &uarr; Browse File
       </button>
       <button class="btn btn-sm" id="paste-srt-btn" title="Paste raw subtitle text">
-        Paste SRT
+        Paste
       </button>
       <input type="file" id="file-input" accept=".srt,.vtt,.txt" style="display: none;">
+    </div>
+
+    <!-- Direct Premiere Ingest Tip -->
+    <div class="tip-banner">
+      <strong>Fastest Workflow (No Finder):</strong> In Premiere's <em>Text panel</em> (Captions tab), press <kbd>Cmd</kbd>+<kbd>A</kbd> &rarr; <kbd>Cmd</kbd>+<kbd>C</kbd>, then click <strong>Grab from Premiere</strong> above. You can also drag an SRT directly onto this window!
     </div>
 
     <!-- Video Safe Zone Preview -->

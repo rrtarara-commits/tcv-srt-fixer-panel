@@ -33,15 +33,32 @@
     console.warn('CSInterface not available (running in browser mode).', e);
   }
 
-  // --- Utility Functions: Timecodes & Seconds ---
-  function parseTimecode(tc) {
+  // --- Utility Functions: Universal Timecodes & Seconds ---
+  function parseTimecode(tc, defaultFps = 24) {
     if (!tc) return 0;
-    const parts = tc.trim().replace(',', '.').split(':');
-    if (parts.length === 3) {
-      const h = parseFloat(parts[0]) || 0;
-      const m = parseFloat(parts[1]) || 0;
-      const s = parseFloat(parts[2]) || 0;
-      return h * 3600 + m * 60 + s;
+    tc = tc.trim();
+    // 1. Milliseconds format: HH:MM:SS,mmm or HH:MM:SS.mmm or MM:SS,mmm
+    if (/[,.]\d{1,3}$/.test(tc)) {
+      const parts = tc.replace(',', '.').split(':');
+      if (parts.length === 3) {
+        return (parseFloat(parts[0]) || 0) * 3600 + (parseFloat(parts[1]) || 0) * 60 + (parseFloat(parts[2]) || 0);
+      } else if (parts.length === 2) {
+        return (parseFloat(parts[0]) || 0) * 60 + (parseFloat(parts[1]) || 0);
+      }
+    }
+    // 2. SMPTE Frame format: HH:MM:SS:FF or HH:MM:SS;FF (common in Premiere Pro)
+    const frameParts = tc.split(/[:;]/);
+    if (frameParts.length === 4) {
+      const h = parseInt(frameParts[0], 10) || 0;
+      const m = parseInt(frameParts[1], 10) || 0;
+      const s = parseInt(frameParts[2], 10) || 0;
+      const f = parseInt(frameParts[3], 10) || 0;
+      return h * 3600 + m * 60 + s + (f / defaultFps);
+    } else if (frameParts.length === 3) {
+      const m = parseInt(frameParts[0], 10) || 0;
+      const s = parseInt(frameParts[1], 10) || 0;
+      const f = parseInt(frameParts[2], 10) || 0;
+      return m * 60 + s + (f / defaultFps);
     }
     return 0;
   }
@@ -126,51 +143,76 @@
     return lines.slice(0, 2).join('\n');
   }
 
-  // --- SRT Parser ---
+  // --- Universal Caption Parser (SRT, VTT, and Premiere Text Panel Clipboard) ---
   function parseSRT(raw) {
-    if (!raw) return [];
+    if (!raw || !raw.trim()) return [];
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const blocks = normalized.split(/\n\s*\n/).filter(b => b.trim().length > 0);
+    const allLines = normalized.split('\n');
 
     const parsedCues = [];
-    const timeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{1,2}[,\.]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{1,2}[,\.]\d{1,3})/;
+    // Range matches: "00:00:01,000 --> 00:00:03,000" OR "00:00:01:12 - 00:00:03:15" OR tab separated
+    const timeRangeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{1,2}[,.:;]\d{1,3})\s*(?:-->|-|\t)\s*((?:\d{1,2}:)?\d{1,2}:\d{1,2}[,.:;]\d{1,3})/;
 
     let autoId = 1;
+    let currentCue = null;
 
-    for (let block of blocks) {
-      const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length < 2) continue;
-
-      let id = autoId;
-      let timeLineIdx = 0;
-
-      if (/^\d+$/.test(lines[0])) {
-        id = parseInt(lines[0], 10);
-        timeLineIdx = 1;
+    for (let i = 0; i < allLines.length; i++) {
+      const line = allLines[i].trim();
+      if (!line) {
+        if (currentCue && currentCue.textLines.length > 0) {
+          finalizeCue(currentCue);
+          parsedCues.push(currentCue);
+          currentCue = null;
+        }
+        continue;
       }
 
-      const match = lines[timeLineIdx] ? lines[timeLineIdx].match(timeRegex) : null;
-      if (!match) continue;
+      // Check if line contains a timecode range
+      const match = line.match(timeRangeRegex);
+      if (match) {
+        if (currentCue) {
+          finalizeCue(currentCue);
+          parsedCues.push(currentCue);
+        }
 
-      const startTimeStr = match[1].replace('.', ',');
-      const endTimeStr = match[2].replace('.', ',');
-      const startSec = parseTimecode(startTimeStr);
-      const endSec = parseTimecode(endTimeStr);
+        const rawStart = match[1];
+        const rawEnd = match[2];
+        const remaining = line.replace(match[0], '').trim();
 
-      const textLines = lines.slice(timeLineIdx + 1);
-      const text = textLines.join('\n');
+        currentCue = {
+          id: autoId++,
+          originalId: autoId - 1,
+          rawStart: rawStart,
+          rawEnd: rawEnd,
+          textLines: remaining ? [remaining] : []
+        };
+      } else if (currentCue) {
+        // Skip pure index numbers at start of blocks
+        if (/^\d+$/.test(line) && currentCue.textLines.length === 0) {
+          continue;
+        }
+        currentCue.textLines.push(line);
+      }
+    }
 
-      parsedCues.push({
-        id: autoId++,
-        originalId: id,
-        startTime: startTimeStr,
-        endTime: endTimeStr,
-        startSec: startSec,
-        endSec: endSec,
-        originalText: text,
-        currentText: text,
-        isModified: false
-      });
+    if (currentCue && currentCue.textLines.length > 0) {
+      finalizeCue(currentCue);
+      parsedCues.push(currentCue);
+    }
+
+    function finalizeCue(cue) {
+      const startSec = parseTimecode(cue.rawStart);
+      const endSec = parseTimecode(cue.rawEnd);
+      cue.startSec = startSec;
+      cue.endSec = endSec;
+      cue.startTime = formatTimecode(startSec);
+      cue.endTime = formatTimecode(endSec);
+      cue.originalText = cue.textLines.join('\n');
+      cue.currentText = cue.originalText;
+      cue.isModified = false;
+      delete cue.textLines;
+      delete cue.rawStart;
+      delete cue.rawEnd;
     }
 
     recalcMetrics(parsedCues);
@@ -880,6 +922,63 @@ Your task:
         showBanner(`Replaced occurrences across ${count} cues.`, 'success');
       });
     }
+
+    // Grab from Premiere Clipboard Button (Direct Timeline/Text Panel Ingest)
+    const grabClipboardBtn = document.getElementById('grab-clipboard-btn');
+    if (grabClipboardBtn) {
+      grabClipboardBtn.addEventListener('click', async () => {
+        try {
+          let text = '';
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            text = await navigator.clipboard.readText();
+          }
+          if (!text || !text.trim()) {
+            text = prompt('Paste your copied captions from Premiere Text panel here:');
+          }
+          if (!text || !text.trim()) {
+            showBanner('No caption text found. Select captions in Premiere & press Cmd+C first.', 'error');
+            return;
+          }
+          const cues = parseSRT(text);
+          if (cues.length === 0) {
+            showBanner('Could not detect timecodes or subtitle lines in clipboard.', 'error');
+            return;
+          }
+          loadRawSrt(text, 'Premiere_Timeline_Captions');
+          showBanner(`Successfully ingested ${cues.length} cues directly from Premiere!`, 'success');
+        } catch (err) {
+          const fallback = prompt('Paste your copied captions here:');
+          if (fallback && fallback.trim()) {
+            loadRawSrt(fallback, 'Premiere_Timeline_Captions');
+          }
+        }
+      });
+    }
+
+    // Direct Drag and Drop Zone onto Extension Panel
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      document.body.classList.add('drag-over');
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      document.body.classList.remove('drag-over');
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      document.body.classList.remove('drag-over');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          loadRawSrt(evt.target.result, file.name);
+          showBanner(`Loaded ${file.name} via drag & drop!`, 'success');
+        };
+        reader.readAsText(file);
+      }
+    });
 
     // Import from Project Bin Dropdown
     const projectSrtSelect = document.getElementById('project-srt-select');

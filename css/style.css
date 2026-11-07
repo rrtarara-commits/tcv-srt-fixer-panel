@@ -621,6 +621,37 @@ textarea {
   flex-shrink: 0;
 }
 
+/* Tip Banner & Keyboard shortcuts */
+.tip-banner {
+  background: rgba(20, 115, 230, 0.08);
+  border: 1px solid rgba(20, 115, 230, 0.25);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tip-banner strong {
+  color: var(--adobe-blue);
+}
+
+kbd {
+  background: var(--bg-surface-alt);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: #ffffff;
+}
+
+/* Drag and Drop Zone Highlight */
+body.drag-over {
+  outline: 2px dashed var(--adobe-blue);
+  outline-offset: -4px;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
