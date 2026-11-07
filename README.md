@@ -12,7 +12,6 @@ Built directly from the specification and engine of [`tcv-srt-fixer.ai.studio`](
 - **⚡ 1-Click Auto-Detect:** In Premiere's Text panel, click `...` > *Export to SRT file*. Then in TCV SRT Fixer, click **⚡ Auto-Detect Latest SRT**. The panel finds the exported file and loads it immediately—no manual file browsing required.
 - **Auto-Apply & Rewrite on Timeline:** Exports the conformed and AI-cleaned subtitles with strict Windows CRLF compliance, organizes them in a `TCV_Captions` project bin, and generates a new, aligned caption track directly on your active sequence timeline using Premiere Pro's ExtendScript API.
 - **Sequence Timecode Sync:** Automatically detects active sequence frame rate, zero point, and dimensions.
-- **Keyboard Shortcuts:** Press `Cmd + S` (macOS) or `Ctrl + S` (Windows) inside the panel to instantly sync to the timeline.
 
 ### 2. Timecode Integrity & Collision Detection
 - **Auto-Resolve Collisions:** Detects timestamp overlaps where Cue $N$'s end time touches or violates Cue $N+1$'s start time and automatically enforces the broadcast-standard **80ms gap** (approx. 2 frames at 24/25fps).
@@ -98,6 +97,6 @@ Copy the `tcv-srt-fixer-panel` folder to your Adobe CEP directory:
    - Add sensitive terms or speaker names to the **Glossary**.
    - Click **Run AI QC & Grammar Fix**.
 6. **Apply Back to Timeline:**
-   - Click **Export & Sync > Apply & Create Caption Track on Timeline** (or press `Cmd+S` / `Ctrl+S`).
+   - Click **Export & Sync > Apply & Create Caption Track on Timeline**.
    - The panel automatically writes the cleaned file to `[Project]/TCV_Captions/`, imports it into Premiere Pro, and places a new caption track directly onto your sequence!
 

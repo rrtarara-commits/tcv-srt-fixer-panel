@@ -1415,15 +1415,6 @@ Your task:
     if (document.getElementById('ai-glossary')) document.getElementById('ai-glossary').value = state.glossary;
     if (document.getElementById('ai-context')) document.getElementById('ai-context').value = state.context;
 
-    // Panel Keyboard Shortcuts
-    window.addEventListener('keydown', (e) => {
-      // Cmd+S or Ctrl+S: Quick Sync to Timeline
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        applyToTimeline();
-      }
-    });
-
     // Refresh Premiere connection
     refreshPremiereStatus();
     setInterval(refreshPremiereStatus, 8000);
