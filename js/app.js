@@ -397,42 +397,59 @@
     if (!grid) return;
 
     grid.innerHTML = `
-      <div class="kpi-card ${state.activeFilter === 'all' ? 'active' : ''}" data-filter="all">
-        <div class="kpi-value">${state.cues.length}</div>
-        <div class="kpi-label">Total Cues</div>
+      <div class="kpi-card ${state.activeFilter === 'all' ? 'active' : ''}" data-filter="all" title="Show all subtitle segments">
+        <span class="kpi-value">${state.cues.length}</span>
+        <span class="kpi-label">Segments</span>
       </div>
-      <div class="kpi-card ${collisions > 0 ? 'danger' : ''} ${state.activeFilter === 'collision' ? 'active' : ''}" data-filter="collision">
-        <div class="kpi-value">${collisions}</div>
-        <div class="kpi-label">Collisions</div>
+      <div class="kpi-card ${collisions > 0 ? 'danger' : ''} ${state.activeFilter === 'collision' ? 'active' : ''}" data-filter="collision" title="Filter segments where timing touches or overlaps the next segment (&lt;80ms gap)">
+        <span class="kpi-value">${collisions}</span>
+        <span class="kpi-label">Overlaps</span>
       </div>
-      <div class="kpi-card ${cplViolations > 0 ? 'warning' : ''} ${state.activeFilter === 'cpl' ? 'active' : ''}" data-filter="cpl">
-        <div class="kpi-value">${cplViolations}</div>
-        <div class="kpi-label">&gt;${state.targetCpl} CPL</div>
+      <div class="kpi-card ${cplViolations > 0 ? 'warning' : ''} ${state.activeFilter === 'cpl' ? 'active' : ''}" data-filter="cpl" title="Filter segments exceeding ${state.targetCpl} Characters Per Line">
+        <span class="kpi-value">${cplViolations}</span>
+        <span class="kpi-label">&gt;${state.targetCpl} Characters Per Line</span>
       </div>
-      <div class="kpi-card ${state.activeFilter === 'cps' ? 'active' : ''}" data-filter="cps">
-        <div class="kpi-value">${cpsViolations}</div>
-        <div class="kpi-label">&gt;20 CPS</div>
+      <div class="kpi-card ${cpsViolations > 0 ? 'info' : ''} ${state.activeFilter === 'cps' ? 'active' : ''}" data-filter="cps" title="Filter segments exceeding 20 Characters Per Second reading speed">
+        <span class="kpi-value">${cpsViolations}</span>
+        <span class="kpi-label">&gt;20 Characters Per Second</span>
       </div>
-      <div class="kpi-card ${state.activeFilter === 'modified' ? 'active' : ''}" data-filter="modified">
-        <div class="kpi-value">${modified}</div>
-        <div class="kpi-label">Modified</div>
+      <div class="kpi-card ${state.activeFilter === 'modified' ? 'active' : ''}" data-filter="modified" title="Filter segments modified from the original SRT">
+        <span class="kpi-value">${modified}</span>
+        <span class="kpi-label">Modified</span>
       </div>
     `;
   }
 
   function renderCueList() {
     const container = document.getElementById('cue-list');
+    const titleEl = document.getElementById('cue-list-title');
+    const clearFilterBtn = document.getElementById('clear-filter-btn');
     if (!container) return;
 
     let filtered = state.cues;
-    if (state.activeFilter === 'collision') filtered = state.cues.filter(c => c.hasCollision);
-    else if (state.activeFilter === 'cpl') filtered = state.cues.filter(c => c.hasCplWarning);
-    else if (state.activeFilter === 'cps') filtered = state.cues.filter(c => c.hasCpsWarning);
-    else if (state.activeFilter === 'modified') filtered = state.cues.filter(c => c.isModified);
+    let filterLabel = `All Caption Segments (${state.cues.length})`;
+    if (state.activeFilter === 'collision') {
+      filtered = state.cues.filter(c => c.hasCollision);
+      filterLabel = `Overlaps (${filtered.length})`;
+    } else if (state.activeFilter === 'cpl') {
+      filtered = state.cues.filter(c => c.hasCplWarning);
+      filterLabel = `>${state.targetCpl} Characters Per Line (${filtered.length})`;
+    } else if (state.activeFilter === 'cps') {
+      filtered = state.cues.filter(c => c.hasCpsWarning);
+      filterLabel = `>20 Characters Per Second (${filtered.length})`;
+    } else if (state.activeFilter === 'modified') {
+      filtered = state.cues.filter(c => c.isModified);
+      filterLabel = `Modified Segments (${filtered.length})`;
+    }
+
+    if (titleEl) titleEl.innerText = filterLabel;
+    if (clearFilterBtn) {
+      clearFilterBtn.style.display = state.activeFilter !== 'all' ? 'inline-block' : 'none';
+    }
 
     if (filtered.length === 0) {
-      container.innerHTML = `<div style="text-align:center; padding: 30px; color: var(--text-muted);">
-        ${state.cues.length === 0 ? 'No subtitles loaded. Import from Premiere or open an SRT file.' : 'No cues match the selected filter.'}
+      container.innerHTML = `<div style="text-align:center; padding: 30px 14px; color: var(--text-muted); font-size: 11px;">
+        ${state.cues.length === 0 ? 'No subtitles loaded yet.<br><br>Click <strong>&#9889; Auto-Detect Latest SRT</strong> or drag an SRT file here to view and edit caption segments.' : 'No segments match the selected filter.'}
       </div>`;
       return;
     }
@@ -452,29 +469,27 @@
               <span class="timecode-chip">${cue.startTime} &rarr; ${cue.endTime}</span>
             </div>
             <div class="cue-badges">
-              ${cue.hasCollision ? '<span class="badge badge-danger">Collision</span>' : ''}
-              ${cue.hasCplWarning ? `<span class="badge badge-warning">${cue.cpl} CPL</span>` : ''}
-              ${cue.hasCpsWarning ? `<span class="badge badge-info">${cue.cps} CPS</span>` : ''}
+              ${cue.hasCollision ? '<span class="badge badge-danger" title="Timing overlaps or is closer than 80ms to next segment">Overlap</span>' : ''}
+              ${cue.hasCplWarning ? `<span class="badge badge-warning" title="Exceeds ${state.targetCpl} Characters Per Line">${cue.cpl} Chars/Line</span>` : ''}
+              ${cue.hasCpsWarning ? `<span class="badge badge-info" title="Exceeds 20 Characters Per Second reading speed">${cue.cps} Chars/Sec</span>` : ''}
               ${cue.isModified ? '<span class="badge badge-success">Modified</span>' : ''}
             </div>
           </div>
 
-          <div class="cue-text-box" contenteditable="true" spellcheck="false" data-id="${cue.id}">
-            ${renderDiffText(cue.originalText, cue.currentText)}
-          </div>
+          <div class="cue-text-box" contenteditable="true" spellcheck="false" data-id="${cue.id}">${renderDiffText(cue.originalText, cue.currentText)}</div>
 
           <div class="cue-card-footer">
             <div class="cue-metrics-info">
               <span>${cue.durationSec}s</span>
               <span>&bull;</span>
-              <span>${cue.cpl} max CPL</span>
+              <span>${cue.cpl} chars/line</span>
               <span>&bull;</span>
-              <span>${cue.cps} CPS</span>
+              <span>${cue.cps} chars/sec</span>
               ${cue.gapMs !== undefined && cue.gapMs < 5000 ? `<span>&bull; Gap: ${cue.gapMs}ms</span>` : ''}
             </div>
             <div style="display:flex; gap: 4px;">
-              ${cue.isModified ? `<button class="btn btn-sm btn-revert" data-id="${cue.id}" title="Revert to original">Revert</button>` : ''}
-              ${cue.hasCollision ? `<button class="btn btn-sm btn-fix-gap" data-id="${cue.id}" title="Trim to 80ms gap">Fix Gap</button>` : ''}
+              ${cue.isModified ? `<button class="btn btn-sm btn-revert" data-id="${cue.id}" title="Revert to original text">Revert</button>` : ''}
+              ${cue.hasCollision ? `<button class="btn btn-sm btn-fix-gap" data-id="${cue.id}" title="Trim end time to enforce 80ms gap">Fix Overlap</button>` : ''}
             </div>
           </div>
         </div>
@@ -490,12 +505,23 @@
     if (cueListEventsInitialized) return;
     const container = document.getElementById('cue-list');
     const kpiGrid = document.getElementById('kpi-grid');
+    const clearFilterBtn = document.getElementById('clear-filter-btn');
+
+    if (clearFilterBtn) {
+      clearFilterBtn.addEventListener('click', () => {
+        state.activeFilter = 'all';
+        renderAuditKPIs();
+        renderCueList();
+      });
+    }
 
     if (kpiGrid) {
       kpiGrid.addEventListener('click', (e) => {
         const card = e.target.closest('.kpi-card');
         if (card) {
-          state.activeFilter = card.getAttribute('data-filter');
+          const clickedFilter = card.getAttribute('data-filter');
+          // Toggle back to 'all' if clicking an already active filter pill
+          state.activeFilter = (state.activeFilter === clickedFilter && clickedFilter !== 'all') ? 'all' : clickedFilter;
           renderAuditKPIs();
           renderCueList();
         }
@@ -603,7 +629,7 @@
       previewText.innerText = cue ? cue.currentText : '[No Subtitle Selected]';
     }
     if (previewBadge) {
-      previewBadge.innerText = cue ? `#${cue.id} (${cue.cpl} CPL · ${cue.cps} CPS)` : '16:9 Title Safe';
+      previewBadge.innerText = cue ? `#${cue.id} (${cue.cpl} chars/line · ${cue.cps} chars/sec)` : '16:9 Title Safe';
     }
   }
 
@@ -1129,6 +1155,8 @@ Your task:
   function init() {
     // Initialize delegated cue list and KPI events (avoids per-element listener churn)
     initCueListEvents();
+    renderAuditKPIs();
+    renderCueList();
 
     // Nav Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {

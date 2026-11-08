@@ -29,18 +29,18 @@
     <button class="tab-btn" data-tab="tab-ai">AI Rewriter</button>
     <button class="tab-btn" data-tab="tab-slip">Slip &amp; Tools</button>
     <button class="tab-btn" data-tab="tab-sync">Export &amp; Sync</button>
-    <button class="tab-btn" data-tab="tab-settings">Settings</button>
+    <button class="tab-btn" data-tab="tab-settings">Help &amp; Standards</button>
   </nav>
 
   <!-- Tab 1: QC & Editor -->
   <main class="tab-content active" id="tab-qc">
-    <!-- Source Selection -->
+    <!-- Top Source Selection Bar -->
     <div class="source-bar">
       <button class="btn btn-sm btn-success" id="auto-detect-srt-btn" title="Auto-detects and loads the newest SRT exported from Premiere Pro">
         &#9889; Auto-Detect Latest SRT
       </button>
-      <select id="project-srt-select" style="flex: 1; min-width: 130px;" title="Select an SRT asset already in your Premiere project bin">
-        <option value="">-- Project Bin Captions --</option>
+      <select id="project-srt-select" style="flex: 1; min-width: 140px;" title="Select an SRT asset already in your Premiere project bin">
+        <option value="">-- Select SRT from Project Bin --</option>
       </select>
       <button class="btn btn-sm" id="paste-srt-btn" title="Paste raw subtitle text or script">
         Paste Text
@@ -51,43 +51,74 @@
       <input type="file" id="file-input" accept=".srt,.vtt,.txt" style="display: none;">
     </div>
 
-    <!-- Direct Premiere Ingest Tip -->
-    <div class="tip-banner">
-      <strong>How to grab captions with 0 Finder clicks:</strong><br>
-      1. In Premiere's <strong>Text panel</strong> (under the <em>Captions</em> tab), click the <strong>&hellip; (3 dots)</strong> menu &rarr; <strong>Export to SRT file</strong>.<br>
-      2. Click <strong>&#9889; Auto-Detect Latest SRT</strong> above. It loads your captions into the panel instantly!
-    </div>
+    <!-- Split Workspace: Left Column (Preview & Compact Controls) + Right Column (Full-Height Vertical Caption List) -->
+    <div class="qc-workspace">
 
-    <!-- Video Safe Zone Preview -->
-    <div class="preview-container" title="Subtitle preview inside SMPTE 80% Title Safe guides">
-      <div class="safe-zone-action"></div>
-      <div class="safe-zone-title"></div>
-      <div class="preview-caption-text" id="preview-caption">
-        [Load subtitles to inspect title-safe alignment]
-      </div>
-      <div class="preview-badge" id="preview-badge">16:9 Title Safe</div>
-    </div>
-
-    <!-- Audit KPI Grid -->
-    <div class="kpi-grid" id="kpi-grid"></div>
-
-    <!-- Action Toolbar -->
-    <div class="action-toolbar">
-      <div style="display:flex; align-items:center; gap: 6px;">
-        <span style="font-size: 10px; color: var(--text-muted); font-weight: 600;">TARGET:</span>
-        <div class="cpl-pill-group">
-          <button class="cpl-pill active" data-cpl="37" title="Netflix / BBC broadcast standard (37 CPL)">37 CPL</button>
-          <button class="cpl-pill" data-cpl="42" title="YouTube / Web standard (42 CPL)">42 CPL</button>
+      <!-- Left Column: Safe Zone Monitor, Compact Metric Pills, Target Bar, Help Guide -->
+      <div class="qc-left-col">
+        <!-- Direct Premiere Ingest Tip -->
+        <div class="tip-banner">
+          <strong>0-Click Premiere Grab:</strong> In Premiere's <strong>Text panel</strong> (<em>Captions</em>), click <strong>&hellip;</strong> &rarr; <strong>Export to SRT file</strong>, then click <strong>&#9889; Auto-Detect Latest SRT</strong>.
         </div>
+
+        <!-- Video Safe Zone Preview -->
+        <div class="preview-container" title="Subtitle preview inside SMPTE 80% Title Safe & 90% Action Safe guides">
+          <div class="safe-zone-action"></div>
+          <div class="safe-zone-title"></div>
+          <div class="preview-caption-text" id="preview-caption">
+            [Load subtitles to inspect title-safe alignment]
+          </div>
+          <div class="preview-badge" id="preview-badge">16:9 Title Safe</div>
+        </div>
+
+        <!-- Compact Audit Metric Pills Below Safe Zone -->
+        <div class="kpi-grid" id="kpi-grid"></div>
+
+        <!-- Action Toolbar -->
+        <div class="action-toolbar">
+          <div class="cpl-control-wrap">
+            <span class="cpl-target-label">Max Characters Per Line:</span>
+            <div class="cpl-pill-group">
+              <button class="cpl-pill active" data-cpl="37" title="Netflix / BBC broadcast standard (37 Characters Per Line)">37</button>
+              <button class="cpl-pill" data-cpl="42" title="YouTube / Web standard (42 Characters Per Line)">42</button>
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-sm" id="autofix-all-btn" title="Split long lines, resolve overlaps with 80ms gaps, and normalize typography">
+            &#9889; Auto-Conform All
+          </button>
+        </div>
+
+        <!-- Collapsible Quick Help / Metrics Explanation -->
+        <details class="help-accordion">
+          <summary>&#9432; What do Overlaps, Characters Per Line &amp; Second mean?</summary>
+          <div class="help-accordion-body">
+            <div class="help-item">
+              <strong>Overlaps (Timecode Collisions):</strong>
+              When a caption's end time touches or overlaps the next caption's start time. Broadcast specs require an <strong>80ms gap (~2 frames)</strong> so captions don't flicker or drop in Premiere.
+            </div>
+            <div class="help-item">
+              <strong>Characters Per Line (CPL):</strong>
+              Max horizontal width of a single line (including spaces). <strong>37 chars/line</strong> is standard for TV/Netflix; <strong>42 chars/line</strong> for YouTube/Web so text stays inside the Title Safe box.
+            </div>
+            <div class="help-item">
+              <strong>Characters Per Second (CPS):</strong>
+              Reading speed limit. Anything over <strong>20 chars/sec</strong> flashes off screen too fast for viewers to read comfortably.
+            </div>
+          </div>
+        </details>
       </div>
 
-      <button class="btn btn-primary btn-sm" id="autofix-all-btn" title="Split long CPL lines, resolve cue overlaps with 80ms gaps, and normalize typography">
-        &#9889; Auto-Conform All
-      </button>
-    </div>
+      <!-- Right Column: Full-Height Vertical Caption List -->
+      <div class="qc-right-col">
+        <div class="cue-list-header">
+          <span class="cue-list-title" id="cue-list-title">Caption Segments</span>
+          <button class="btn-link" id="clear-filter-btn" style="display: none;">Show All Segments</button>
+        </div>
+        <div class="cue-list-container" id="cue-list"></div>
+      </div>
 
-    <!-- Scrollable Cue List -->
-    <div class="cue-list-container" id="cue-list"></div>
+    </div>
   </main>
 
   <!-- Tab 2: AI Rewriter -->
@@ -162,7 +193,7 @@
     <div class="ai-settings-card">
       <div style="font-weight: 600; font-size: 12px; color: #fff;">Slip / Offset All Timecodes</div>
       <p style="font-size: 11px; color: var(--text-muted);">
-        Nudge all subtitle cues earlier or later across the timeline in milliseconds.
+        Nudge all subtitle segments earlier or later across the timeline in milliseconds.
       </p>
       <div style="display:flex; gap: 6px; align-items: center;">
         <input type="number" id="slip-ms" value="100" step="50" style="width: 100px;" placeholder="+/- ms">
@@ -172,7 +203,7 @@
     </div>
 
     <div class="ai-settings-card" style="margin-top: 8px;">
-      <div style="font-weight: 600; font-size: 12px; color: #fff;">Find &amp; Replace Across Cues</div>
+      <div style="font-weight: 600; font-size: 12px; color: #fff;">Find &amp; Replace Across Segments</div>
       <p style="font-size: 11px; color: var(--text-muted);">
         Batch update misspelled terms, acronyms, or speaker names.
       </p>
@@ -216,24 +247,48 @@
     </div>
   </div>
 
-  <!-- Tab 5: Settings & Guidelines -->
+  <!-- Tab 5: Help & Standards -->
   <div class="tab-content" id="tab-settings">
     <div class="ai-settings-card">
-      <div style="font-weight: 600; font-size: 12px; color: #fff;">Broadcast QC Standards</div>
-      <ul style="font-size: 11px; color: var(--text-muted); padding-left: 16px; line-height: 1.6;">
-        <li><strong>Overlap / Collisions:</strong> Enforces standard 80ms gap (approx. 2 frames at 24/25fps) between adjacent cues.</li>
-        <li><strong>Max Characters Per Line:</strong> 37 CPL for Netflix/BBC broadcast; 42 CPL for YouTube &amp; web.</li>
-        <li><strong>Reading Speed:</strong> Warns when reading speed exceeds 20 CPS (Characters Per Second).</li>
-        <li><strong>Minimum Duration:</strong> Automatically expands cues shorter than 0.8s when timeline space allows.</li>
-        <li><strong>Typography:</strong> Automatically conforms curly quotes (&ldquo; &rdquo; &lsquo; &rsquo;) and em-dashes to standard ASCII.</li>
-      </ul>
+      <div style="font-weight: 600; font-size: 13px; color: #fff;">Subtitle Metrics &amp; Broadcast QC Guide</div>
+      <p style="font-size: 11px; color: var(--text-muted);">
+        Understanding the metrics below the Safe Zone preview and how TCV SRT Fixer conforms your captions:
+      </p>
+
+      <div class="help-guide-block">
+        <div class="help-guide-title">&#128308; Overlaps (Timecode Collisions)</div>
+        <div class="help-guide-desc">
+          Occurs when the Out-point (end time) of one caption touches or overlaps the In-point (start time) of the next caption.
+          <br><strong>Why it matters:</strong> Zero-gap or overlapping captions can cause Premiere Pro and broadcast playout servers to flicker or skip the second subtitle.
+          <br><strong>How we fix it:</strong> Enforces a broadcast-standard <strong>80ms gap (~2 frames at 24/25fps)</strong> between consecutive segments.
+        </div>
+      </div>
+
+      <div class="help-guide-block">
+        <div class="help-guide-title">&#128992; Characters Per Line (CPL)</div>
+        <div class="help-guide-desc">
+          The maximum horizontal length of a single line of subtitle text (including spaces and punctuation).
+          <br><strong>Why it matters:</strong> Long lines bleed outside the 80% SMPTE Title Safe zone or force the viewer's eyes to scan too far across the video.
+          <br><strong>Targets:</strong> <strong>37 Characters Per Line</strong> for Broadcast TV / Netflix / BBC; <strong>42 Characters Per Line</strong> for YouTube / Social / Web.
+          <br><strong>How we fix it:</strong> Automatically reflows long lines at natural grammatical pauses (commas, conjunctions) rather than breaking mid-phrase.
+        </div>
+      </div>
+
+      <div class="help-guide-block">
+        <div class="help-guide-title">&#128995; Characters Per Second (CPS)</div>
+        <div class="help-guide-desc">
+          Measures reading speed: total characters divided by the segment's duration on screen in seconds.
+          <br><strong>Why it matters:</strong> Viewers comfortably read 12&ndash;17 characters per second. Anything exceeding <strong>20 Characters Per Second</strong> flashes off screen before the viewer can finish reading.
+          <br><strong>How we fix it:</strong> Extends short segments (&lt; 0.8s) when timeline space permits, or lets you use the AI Rewriter to tighten wordy phrasing.
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Footer Quick Bar -->
   <footer class="footer-bar">
-    <span style="font-size: 10px; color: var(--text-dim);">TCV Precision QC v1.0</span>
-    <button class="btn btn-primary btn-sm" onclick="document.querySelector('[data-tab=tab-sync]').click()">
+    <span style="font-size: 10px; color: var(--text-dim);">TCV Precision QC v1.1</span>
+    <button class="btn btn-primary btn-sm" id="footer-sync-btn" onclick="document.querySelector('[data-tab=tab-sync]').click()">
       Sync to Premiere &rarr;
     </button>
   </footer>
